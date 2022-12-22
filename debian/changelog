@@ -1,0 +1,63 @@
+picocli (3.9.6-3) unstable; urgency=medium
+
+  * Update Uploaders (Closes: #980400)
+  * Use debhelper-compat 13
+  * Bump Standards-Version to 4.5.1
+  * Set Rules-Requires-Root: no in debian/control
+  * Freshen debian/copyright
+  * Add build-dep on jline3
+  * Disable tests (to emulate g-d-h behavior before DH bump)
+
+ -- tony mancill <tmancill@debian.org>  Mon, 18 Jan 2021 12:10:41 -0800
+
+picocli (3.9.6-2) unstable; urgency=medium
+
+  * Team upload to unstable.
+
+ -- tony mancill <tmancill@debian.org>  Tue, 02 Jul 2019 20:17:17 -0700
+
+picocli (3.9.6-1) experimental; urgency=medium
+
+  * New upstream release
+  * debian/control: set Multi-Arch: foreign
+
+ -- Miroslav Kravec <kravec.miroslav@gmail.com>  Tue, 23 Apr 2019 19:14:37 +0200
+
+picocli (3.9.2-1) unstable; urgency=medium
+
+  * New upstream release
+  * debian/changelog: file-contains-trailing-whitespace
+  * debian/control: bump standards-version
+  * debian/patches: adjust to new release
+
+ -- Miroslav Kravec <kravec.miroslav@gmail.com>  Sat, 26 Jan 2019 19:46:09 +0100
+
+picocli (3.9.1-1) unstable; urgency=medium
+
+  * New upstream release
+  * debian/control: add libjline2-java dependency
+  * debian/libpicocli-java.poms: add new picocli modules / JARs
+  * debian/maven.rules: keep jline version (debian version link doesn't exist)
+  * debian/patches: make new release buildable under debian
+
+ -- Miroslav Kravec <kravec.miroslav@gmail.com>  Sun, 13 Jan 2019 10:26:29 +0100
+
+picocli (3.6.1-1) unstable; urgency=medium
+
+  * New upstream release
+  * debian/patches: fix patch
+  * debian/rules: fix gradle exclude task
+
+ -- Miroslav Kravec <kravec.miroslav@gmail.com>  Sun, 07 Oct 2018 11:53:36 +0200
+
+picocli (3.5.2-2) unstable; urgency=medium
+
+  * debian/copyright: add missing copyright attribution (Closes: #908606)
+
+ -- Miroslav Kravec <kravec.miroslav@gmail.com>  Sat, 15 Sep 2018 16:16:33 +0200
+
+picocli (3.5.2-1) unstable; urgency=medium
+
+  * Initial release (Closes: #908302)
+
+ -- Miroslav Kravec <kravec.miroslav@gmail.com>  Sat, 08 Sep 2018 18:55:11 +0200

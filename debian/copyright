@@ -1,0 +1,29 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Picocli
+Source: https://github.com/remkop/picocli
+Files-Excluded: docs
+                gradle/wrapper
+                gradlew*
+
+Files: *
+Copyright: 2017-2018, Remko Popma <rpopma@apache.org>
+           2017, Jim White
+           2017, Robert Zenz
+License: Apache-2.0
+
+Files: src/main/java/picocli/CommandLine.java
+Copyright: 2017-2018, Remko Popma <rpopma@apache.org>
+           2007, Burt Beckwith
+License: Apache-2.0
+Comment:
+ File contains code snippet released under Apache-2.0 on a blog,
+ http://www.nearinfinity.com/blogs/seth_schroeder/groovy_cosine_similarity_in_grails.html
+
+Files: debian/*
+Copyright: 2018, Miroslav Kravec <kravec.miroslav@gmail.com>
+	   2021, tony mancill <tmancill@debian.org>
+License: Apache-2.0
+
+License: Apache-2.0
+ On Debian systems, the full text of the Apache-2.0 license
+ can be found in the file '/usr/share/common-licenses/Apache-2.0'

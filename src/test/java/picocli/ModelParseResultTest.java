@@ -15,20 +15,40 @@
  */
 package picocli;
 
+import org.junit.Rule;
 import org.junit.Test;
-
-import java.io.File;
-import java.util.*;
-
+import org.junit.contrib.java.lang.system.ProvideSystemProperty;
+import org.junit.contrib.java.lang.system.RestoreSystemProperties;
+import org.junit.rules.TestRule;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Model.OptionSpec;
 import picocli.CommandLine.Model.PositionalParamSpec;
 import picocli.CommandLine.ParseResult;
 
+import java.io.File;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.Stack;
+
 import static org.junit.Assert.*;
-import static picocli.CommandLine.*;
+import static picocli.CommandLine.Command;
+import static picocli.CommandLine.Option;
+import static picocli.CommandLine.Parameters;
+import static picocli.CommandLine.Range;
 
 public class ModelParseResultTest {
+
+    // allows tests to set any kind of properties they like, without having to individually roll them back
+    @Rule
+    public final TestRule restoreSystemProperties = new RestoreSystemProperties();
+
+    @Rule
+    public final ProvideSystemProperty ansiOFF = new ProvideSystemProperty("picocli.ansi", "false");
+
     @Test
     public void testCommandSpec_IsCommandLineCommandSpec() {
         class App {
@@ -79,11 +99,12 @@ public class ModelParseResultTest {
         ParseResult result = new CommandLine(new App()).parseArgs(args);
         assertEquals(Arrays.asList(args), result.originalArgs());
 
-        assertSame(result.commandSpec().positionalParameters().get(0), result.tentativeMatch.get(0));
-        assertSame(result.commandSpec().positionalParameters().get(0), result.tentativeMatch.get(1));
-        assertSame(result.commandSpec().positionalParameters().get(1), result.tentativeMatch.get(2));
-        assertSame(result.commandSpec().positionalParameters().get(1), result.tentativeMatch.get(3));
-        assertSame(result.commandSpec().positionalParameters().get(1), result.tentativeMatch.get(4));
+        List<PositionalParamSpec> positionals = result.commandSpec().positionalParameters();
+        assertSame(positionals.get(0), result.tentativeMatch.get(0));
+        assertSame(positionals.get(0), result.tentativeMatch.get(1));
+        assertSame(positionals.get(1), result.tentativeMatch.get(2));
+        assertSame(positionals.get(1), result.tentativeMatch.get(3));
+        assertSame(positionals.get(1), result.tentativeMatch.get(4));
 
         assertTrue(result.unmatched().isEmpty());
         assertFalse(result.hasSubcommand());
@@ -91,14 +112,25 @@ public class ModelParseResultTest {
         assertFalse(result.isVersionHelpRequested());
 
         assertEquals(Collections.emptyList(), result.matchedOptions());
-        assertEquals(3, result.matchedPositionals().size());
+        assertEquals(3, result.matchedPositionalsSet().size());
+        assertEquals(new LinkedHashSet<PositionalParamSpec>(positionals), result.matchedPositionalsSet());
+
+        assertEquals(5 + 2 + 4, result.matchedPositionals().size());
         assertEquals(Range.valueOf("0..1"), result.matchedPositionals().get(0).index());
         assertEquals(Range.valueOf("0..*"), result.matchedPositionals().get(1).index());
-        assertEquals(Range.valueOf("1..*"), result.matchedPositionals().get(2).index());
+        assertEquals(Range.valueOf("0..1"), result.matchedPositionals().get(2).index());
+        assertEquals(Range.valueOf("0..*"), result.matchedPositionals().get(3).index());
+        assertEquals(Range.valueOf("1..*"), result.matchedPositionals().get(4).index());
+        assertEquals(Range.valueOf("0..*"), result.matchedPositionals().get(5).index());
+        assertEquals(Range.valueOf("1..*"), result.matchedPositionals().get(6).index());
+        assertEquals(Range.valueOf("0..*"), result.matchedPositionals().get(7).index());
+        assertEquals(Range.valueOf("1..*"), result.matchedPositionals().get(8).index());
+        assertEquals(Range.valueOf("0..*"), result.matchedPositionals().get(9).index());
+        assertEquals(Range.valueOf("1..*"), result.matchedPositionals().get(10).index());
 
         assertArrayEquals(args, (String[]) result.matchedPositionals().get(1).getValue());
         assertArrayEquals(new String[]{"a", "b"}, (String[]) result.matchedPositionals().get(0).getValue());
-        assertArrayEquals(new String[]{"b", "c", "d", "e"}, (String[]) result.matchedPositionals().get(2).getValue());
+        assertArrayEquals(new String[]{"b", "c", "d", "e"}, (String[]) result.matchedPositionals().get(4).getValue());
 
         for (int i = 0; i < args.length; i++) {
             assertTrue(result.hasMatchedPositional(i));
@@ -677,5 +709,15 @@ public class ModelParseResultTest {
         builder.addUnmatched(stack);
         ParseResult parseResult = builder.build();
         assertEquals(Arrays.asList("c", "b", "a"), parseResult.unmatched());
+    }
+
+    @Test
+    public void testParseResult_matchedOptionsSet() {
+        @Command(mixinStandardHelpOptions = true) class A {}
+        ParseResult pr = new CommandLine(new A()).parseArgs("--help", "--version");
+        Set<OptionSpec> matched = pr.matchedOptionsSet();
+        assertEquals(2, matched.size());
+        assertTrue(matched.contains(pr.commandSpec().findOption("--help")));
+        assertTrue(matched.contains(pr.commandSpec().findOption("--version")));
     }
 }

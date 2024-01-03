@@ -1,268 +1,391 @@
 From: Miroslav Kravec <kravec.miroslav@gmail.com>
 Date: Sat, 26 Jan 2019 19:31:42 +0100
-Subject: Adjust build to work without asciidoctor and bintray,
+Subject: Adjust build to work without the following plugins:
+ - asciidoctor
+ - bnd (so no OSGi metadata)
+ - org.beryx:badass-jar (so no multi-version JARs)
  and with default java
+Last-update: 2021-11-21
+Forwarded: not-needed
 
----
- build.gradle                      | 61 ---------------------------------------
- picocli-codegen/build.gradle      | 35 +---------------------
- picocli-shell-jline2/build.gradle | 35 +---------------------
- picocli-shell-jline3/build.gradle | 34 ----------------------
- 4 files changed, 2 insertions(+), 163 deletions(-)
-
-diff --git a/build.gradle b/build.gradle
-index 242919d..eeb0222 100644
 --- a/build.gradle
 +++ b/build.gradle
-@@ -2,21 +2,8 @@ group 'info.picocli'
+@@ -1,61 +1,8 @@
+-import aQute.bnd.gradle.Bundle
+-
+ group 'info.picocli'
  description 'Java command line parser with both an annotations API and a programmatic API. Usage help with ANSI styles and colors. Autocomplete. Nested subcommands. Easily included as source to avoid adding a dependency.'
  version "$projectVersion"
+ ext.moduleName = 'info.picocli'
  
 -buildscript {
 -    repositories {
--        jcenter()
+-        maven {
+-            url "https://plugins.gradle.org/m2/"
+-        }
+-        mavenCentral()
 -    }
 -
 -    dependencies {
--        classpath "org.asciidoctor:asciidoctor-gradle-plugin:$asciidoctorGradlePluginVersion"
--        classpath "com.jfrog.bintray.gradle:gradle-bintray-plugin:$gradleBintrayPluginVersion"
+-        classpath "org.asciidoctor:asciidoctor-gradle-jvm:$asciidoctorGradlePluginVersion"
+-        classpath 'org.asciidoctor:asciidoctorj-pdf:1.5.4'
+-        classpath "gradle.plugin.org.beryx:badass-jar:1.1.3"
+-        classpath 'biz.aQute.bnd:biz.aQute.bnd.gradle:5.1.2'
 -    }
 -}
 -
--apply plugin: 'org.asciidoctor.convert'
- apply plugin: 'distribution'
- apply plugin: 'maven-publish'
--apply plugin: 'com.jfrog.bintray'
- 
+-apply plugin: "org.beryx.jar"
+-
+-if (System.getenv('MAVEN_OSS_USER')) { // on home system
+-    apply plugin: 'biz.aQute.bnd.builder'
+-} else {
+-    try { // otherwise, only apply if available
+-        Class.forName('aQute.bnd.gradle.BndPlugin')
+-        Class.forName('aQute.bnd.build.Project')
+-        apply plugin: 'biz.aQute.bnd.builder'
+-    } catch (Throwable ignored) {}
+-}
+-pluginManager.withPlugin('biz.aQute.bnd.builder') { // if plugin applied, execute this action
+-    configurations {
+-        bundleCompile
+-        baseline
+-    }
+-    dependencies {
+-        baseline('group': group, 'name': jar.archiveBaseName) {
+-            version {
+-                strictly "(,${jar.archiveVersion}["
+-            }
+-            transitive = false
+-        }
+-    }
+-    sourceSets {
+-        bundle
+-    }
+-    task bundle(type: Bundle) {
+-        from sourceSets.bundle.output
+-        bndfile = 'bnd.bnd'
+-        sourceSet = sourceSets.bundle
+-    }
+-}
+-
+-
  allprojects {
-     apply plugin: 'groovy'
-@@ -157,19 +144,6 @@ jar {
+     apply plugin: 'java'
+     apply plugin: 'java-library' // to avoid https://github.com/gradle/gradle/issues/1118
+@@ -103,7 +50,7 @@
+     }
  }
  
- javadoc.options.overview = "src/main/java/overview.html"
+-sourceSets.main.java.srcDirs = ['src/main/java', 'src/main/java9']
++sourceSets.main.java.srcDirs = ['src/main/java']
+ compileJava {
+     inputs.property("moduleName", moduleName)
+     doFirst {
+@@ -116,20 +63,6 @@
+     }
+ }
+ 
+-jar {
+-    manifest {
+-        attributes 'Specification-Title'   : 'picocli',
+-                   'Specification-Vendor'  : 'Remko Popma',
+-                   'Specification-Version' : archiveVersion.get(),
+-                   'Implementation-Title'  : 'picocli',
+-                   'Implementation-Vendor' : 'Remko Popma',
+-                   'Implementation-Version': archiveVersion.get(),
+-                   'Main-Class'            : 'picocli.AutoComplete'
+-    }
+-    // copy module-info.class to META-INF/versions/9
+-    multiRelease = true
+-}
+-
+ // jacoco 0.8.2 does not work with Java 13; gradle 4.x has no JavaVersion enum value for Java 12
+ if (org.gradle.api.JavaVersion.current().isJava11Compatible()) {
+     project.logger.lifecycle("skipping jacoco test for Java version ${org.gradle.api.JavaVersion.current()}")
+--- a/picocli-codegen/build.gradle
++++ b/picocli-codegen/build.gradle
+@@ -29,24 +29,11 @@
+ //generateGraalReflectionConfig.dependsOn(compileJava)
+ //jar.dependsOn(generateGraalReflectionConfig)
+ 
+-jar {
+-    manifest {
+-        attributes 'Specification-Title'   : 'Picocli Code Generation',
+-                   'Specification-Vendor'  : 'Remko Popma',
+-                   'Specification-Version' : archiveVersion.get(),
+-                   'Implementation-Title'  : 'Picocli Code Generation',
+-                   'Implementation-Vendor' : 'Remko Popma',
+-                   'Implementation-Version': archiveVersion.get(),
+-                   'Automatic-Module-Name' : 'info.picocli.codegen'
+-    }
+-}
+-
+-
+ task generateManpageAsciiDoc(type: JavaExec) {
+     dependsOn(classes)
+     group = "Documentation"
+     description = "Generate AsciiDoc manpage"
+-    classpath(configurations.compileClasspath, configurations.annotationProcessor, sourceSets.main.runtimeClasspath)
++    classpath(configurations.compileClasspath, sourceSets.main.runtimeClasspath)
+     main 'picocli.codegen.docgen.manpage.ManPageGenerator'
+     args 'picocli.codegen.docgen.manpage.ManPageGenerator$App',
+             'picocli.codegen.aot.graalvm.DynamicProxyConfigGenerator$App',
+@@ -62,18 +49,6 @@
+     }
+ }
+ 
+-apply plugin: 'org.asciidoctor.jvm.convert'
+-asciidoctor {
+-    dependsOn(generateManpageAsciiDoc)
+-    sourceDir = file("${project.buildDir}/picocli-generated-docs")
+-    outputDir = file("${project.buildDir}/docs")
+-    logDocuments = true
+-    outputOptions {
+-        backends = ['manpage', 'html5']
+-    }
+-}
 -javadoc.dependsOn('asciidoctor')
+-
+ ext {
+     PUBLISH_GROUP_ID = group
+     PUBLISH_ARTIFACT_ID = project.name
+--- a/gradle/docs.gradle
++++ b/gradle/docs.gradle
+@@ -1,13 +1,4 @@
+ apply plugin: 'java'
+-apply plugin: 'org.asciidoctor.jvm.convert'
+-pluginManager.withPlugin('org.asciidoctor.jvm.convert') { // if plugin applied, execute this action
+-    configurations {
+-        tabbedCodeExt
+-    }
+-    dependencies {
+-        tabbedCodeExt "com.bmuschko:asciidoctorj-tabbed-code-extension:0.3"
+-    }
+-}
+ 
+ Map<org.gradle.api.JavaVersion, String> linkMap = org.gradle.api.JavaVersion.values().collectEntries { version ->
+     [(version) : 'https://docs.oracle.com/javase/8/docs/api/']
+@@ -41,19 +32,3 @@
+     }
+ }
+ javadoc.dependsOn(jar)
+-javadoc.dependsOn('asciidoctor')
+-asciidoctorj {
+-    version = '2.4.3'
+-}
 -asciidoctor {
 -    sourceDir = file('docs')
 -    outputDir = file('build/docs')
 -    logDocuments = true
+-    configurations 'tabbedCodeExt'
+-    baseDirFollowsSourceDir()
+-//    backends 'pdf', 'html'
+-//    attributes 'sourcedir': file('docs') //project.sourceSets.main.java.srcDirs[0]
+-////    attributes 'pdf-stylesdir': 'theme',
+-////               'pdf-style': 'custom',
+-////               'sourcedir': file('docs') //project.sourceSets.main.java.srcDirs[0]
 -}
--// jacoco 0.8.2 does not work with Java 13; gradle 4.x has no JavaVersion enum value for Java 12
--if (org.gradle.api.JavaVersion.current().isJava11Compatible()) {
--    project.logger.lifecycle("skipping jacoco test for Java version ${org.gradle.api.JavaVersion.current()}")
--} else {
--    project.logger.lifecycle("applying jacoco build file for Java version ${org.gradle.api.JavaVersion.current()}")
--    apply from: "gradle/jacoco.gradle"
--}
- task bumpReadmeVersion {
-     doLast {
-         // README.md
-@@ -240,41 +214,6 @@ ext {
-     bintrayWebsiteUrl = 'http://picocli.info'
-     bintrayLabels     = ['cli', 'cli framework', 'java', 'command line', 'ergonomic', 'library', 'parser', 'ansi', 'colors', 'annotations', 'reflection', 'usage', 'help', 'customizable', 'stand-alone application', 'main method', 'picocli']
- }
--bintray {
--    user = bintrayUsername
--    key  = bintrayApiKey
--    publications = ['MyPublication']
--    dryRun   = bintrayDryRun //[Default: false] Whether to run this as dry-run, without deploying
--    publish  = bintrayPublish //[Default: false] Whether version should be auto published after an upload    
--    override = bintrayOverride //[Default: false] Whether to override version artifacts already published    
--    //Package configuration. The plugin will use the repo and name properties to check if the package already exists. In that case, there's no need to configure the other package properties (like userOrg, desc, etc).
--    pkg {
--        repo     = 'picocli'
--        name     = bintrayPackage
--        userOrg  = 'remkop'
--        licenses = ['Apache-2.0']
--        desc = description
--        websiteUrl = bintrayWebsiteUrl
--        issueTrackerUrl = 'https://github.com/remkop/picocli/issues'
--        vcsUrl   = 'https://github.com/remkop/picocli.git'
--        labels = bintrayLabels
--        publicDownloadNumbers = false
--        githubRepo = 'remkop/picocli' //Optional Github repository
--        githubReleaseNotesFile = 'RELEASE-NOTES.md' //Optional Github readme file
--        version {
--            name     = "$projectVersion"
--            desc     = description
--            released = new Date()
--            vcsTag   = "v$projectVersion"
--            mavenCentralSync {
--                sync = mavenOssSync //[Default: true] Determines whether to sync the version to Maven Central.
--                user = mavenOssUser //OSS user token: mandatory
--                password = mavenOssPassword //OSS user password: mandatory
--                close = '1' //Optional property. By default the staging repository is closed and artifacts are released to Maven Central. You can optionally turn this behaviour off (by puting 0 as value) and release the version manually.
--            }
+--- a/picocli-examples/generate-man-pages/example-gradle-project/build.gradle
++++ b/picocli-examples/generate-man-pages/example-gradle-project/build.gradle
+@@ -1,22 +1,6 @@
+-buildscript {
+-    repositories {
+-        jcenter()
+-        maven {
+-            url "https://plugins.gradle.org/m2/"
 -        }
+-        mavenCentral()
+-    }
+-
+-    dependencies {
+-        classpath "org.asciidoctor:asciidoctor-gradle-jvm:3.3.2"
 -    }
 -}
- publishing {
-     publications {
-         MyPublication(MavenPublication) {
-diff --git a/picocli-codegen/build.gradle b/picocli-codegen/build.gradle
-index 061f4f9..abcc61a 100644
---- a/picocli-codegen/build.gradle
-+++ b/picocli-codegen/build.gradle
-@@ -2,12 +2,12 @@ plugins {
+-
+ plugins {
      id 'java'
-     id 'distribution'
-     id 'maven-publish'
--    id 'com.jfrog.bintray'
+ }
+-apply plugin: 'org.asciidoctor.jvm.convert'
+-
+ 
+ group 'org.mycompany.myproject'
+ version '1.0-SNAPSHOT'
+@@ -50,18 +34,6 @@
+     args project.ext.mainClassName, "--outdir=${project.buildDir}/generated-picocli-docs", "-v", "--template-dir=src/docs/mantemplates"
  }
  
- group 'info.picocli'
- description 'Picocli Code Generation - Tools to generate documentation, configuration, source code and other files from a picocli model.'
- version "$projectVersion"
-+sourceCompatibility = 1.6
- 
- dependencies {
-     compile rootProject
-@@ -30,39 +30,6 @@ ext {
-     bintrayWebsiteUrl = 'https://github.com/remkop/picocli/tree/master/picocli-codegen'
-     bintrayLabels     = ['cli', 'cli framework', 'command line', 'codegen', 'picocli']
- }
--bintray {
--    user = bintrayUsername
--    key  = bintrayApiKey
--    publications = ['MyPublication']
--    dryRun   = bintrayDryRun //[Default: false] Whether to run this as dry-run, without deploying
--    publish  = bintrayPublish //[Default: false] Whether version should be auto published after an upload    
--    override = bintrayOverride //[Default: false] Whether to override version artifacts already published    
--    //Package configuration. The plugin will use the repo and name properties to check if the package already exists. In that case, there's no need to configure the other package properties (like userOrg, desc, etc).
--    pkg {
--        repo     = 'picocli'
--        name     = bintrayPackage
--        userOrg  = 'remkop'
--        licenses = ['Apache-2.0']
--        desc = description
--        websiteUrl = bintrayWebsiteUrl
--        issueTrackerUrl = 'https://github.com/remkop/picocli/issues'
--        vcsUrl   = 'https://github.com/remkop/picocli.git'
--        labels = bintrayLabels
--        publicDownloadNumbers = false
--        version {
--            name     = "$projectVersion"
--            desc     = description
--            released = new Date()
--            vcsTag   = "v$projectVersion"
--            mavenCentralSync {
--                sync = mavenOssSync //[Default: true] Determines whether to sync the version to Maven Central.
--                user = mavenOssUser //OSS user token: mandatory
--                password = mavenOssPassword //OSS user password: mandatory
--                close = '1' //Optional property. By default the staging repository is closed and artifacts are released to Maven Central. You can optionally turn this behaviour off (by puting 0 as value) and release the version manually.
--            }
--        }
+-apply plugin: 'org.asciidoctor.jvm.convert'
+-asciidoctor {
+-    dependsOn(generateManpageAsciiDoc)
+-    sourceDir = file("${project.buildDir}/generated-picocli-docs")
+-    outputDir = file("${project.buildDir}/docs")
+-    logDocuments = true
+-    outputOptions {
+-        backends = ['manpage', 'html5']
 -    }
 -}
- publishing {
-     publications {
-         MyPublication(MavenPublication) {
-diff --git a/picocli-shell-jline2/build.gradle b/picocli-shell-jline2/build.gradle
-index 63245e4..68dac91 100644
+-assemble.dependsOn(asciidoctor)
+-
+ // We can now use the Gradle `distribution` plugin to include
+ // the generated manpage files in the distribution archive:
+ apply plugin: "distribution"
+--- a/picocli-annotation-processing-tests/build.gradle
++++ b/picocli-annotation-processing-tests/build.gradle
+@@ -22,19 +22,7 @@
+     }
+ }
+ tasks.withType(Test.class) {
+-    if (org.gradle.api.JavaVersion.current().isJava12Compatible()) { // only a problem from Java 16, but okay
++    //if (org.gradle.api.JavaVersion.current().isJava12Compatible()) { // only a problem from Java 16, but okay
+         it.jvmArgs '--add-opens=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED' // https://github.com/google/compile-testing/issues/222
+-    }
+-}
+-
+-jar {
+-    manifest {
+-        attributes 'Specification-Title': 'Picocli Annotation Processing Tests',
+-                'Specification-Vendor'  : 'Remko Popma',
+-                'Specification-Version' : archiveVersion.get(),
+-                'Implementation-Title'  : 'Picocli Annotation Processing Tests',
+-                'Implementation-Vendor' : 'Remko Popma',
+-                'Implementation-Version': archiveVersion.get(),
+-                'Automatic-Module-Name' : 'info.picocli.annotation.processing.tests'
+-    }
++    //}
+ }
+--- a/picocli-groovy/build.gradle
++++ b/picocli-groovy/build.gradle
+@@ -29,18 +29,6 @@
+ ]
+ //javadoc.options.linksOffline 'http://docs.groovy-lang.org/2.4.9/html/gapi', 'gradle/javadocs/jdk/9/'
+ 
+-jar {
+-    manifest {
+-        attributes  'Specification-Title'   : 'Picocli Groovy',
+-                    'Specification-Vendor'  : 'Remko Popma',
+-                    'Specification-Version' : archiveVersion.get(),
+-                    'Implementation-Title'  : 'Picocli Groovy',
+-                    'Implementation-Vendor' : 'Remko Popma',
+-                    'Implementation-Version': archiveVersion.get(),
+-                    'Automatic-Module-Name' : 'info.picocli.groovy'
+-    }
+-}
+-
+ ext {
+     PUBLISH_GROUP_ID = group
+     PUBLISH_ARTIFACT_ID = project.name
 --- a/picocli-shell-jline2/build.gradle
 +++ b/picocli-shell-jline2/build.gradle
-@@ -2,12 +2,12 @@ plugins {
-     id 'java'
-     id 'distribution'
-     id 'maven-publish'
--    id 'com.jfrog.bintray'
+@@ -12,18 +12,6 @@
+     testImplementation "junit:junit:$junitVersion"
  }
  
- group 'info.picocli'
- description 'Picocli Shell JLine2 - easily build interactive shell applications with JLine 2 and picocli.'
- version "$projectVersion"
-+sourceCompatibility = 1.6
- 
- dependencies {
-     compile rootProject
-@@ -32,39 +32,6 @@ ext {
-     bintrayWebsiteUrl = 'https://github.com/remkop/picocli/tree/master/picocli-shell-jline2'
-     bintrayLabels     = ['cli', 'interactive', 'commandline', 'shell', 'picocli', 'jline']
- }
--bintray {
--    user = bintrayUsername
--    key  = bintrayApiKey
--    publications = ['MyPublication']
--    dryRun   = bintrayDryRun //[Default: false] Whether to run this as dry-run, without deploying
--    publish  = bintrayPublish //[Default: false] Whether version should be auto published after an upload    
--    override = bintrayOverride //[Default: false] Whether to override version artifacts already published    
--    //Package configuration. The plugin will use the repo and name properties to check if the package already exists. In that case, there's no need to configure the other package properties (like userOrg, desc, etc).
--    pkg {
--        repo     = 'picocli'
--        name     = bintrayPackage
--        userOrg  = 'remkop'
--        licenses = ['Apache-2.0']
--        desc = description
--        websiteUrl = bintrayWebsiteUrl
--        issueTrackerUrl = 'https://github.com/remkop/picocli/issues'
--        vcsUrl   = 'https://github.com/remkop/picocli.git'
--        labels = bintrayLabels
--        publicDownloadNumbers = false
--        version {
--            name     = "$projectVersion"
--            desc     = description
--            released = new Date()
--            vcsTag   = "v$projectVersion"
--            mavenCentralSync {
--                sync = mavenOssSync //[Default: true] Determines whether to sync the version to Maven Central.
--                user = mavenOssUser //OSS user token: mandatory
--                password = mavenOssPassword //OSS user password: mandatory
--                close = '1' //Optional property. By default the staging repository is closed and artifacts are released to Maven Central. You can optionally turn this behaviour off (by puting 0 as value) and release the version manually.
--            }
--        }
+-jar {
+-    manifest {
+-        attributes  'Specification-Title'   : 'Picocli Shell JLine2',
+-                    'Specification-Vendor'  : 'Remko Popma',
+-                    'Specification-Version' : archiveVersion.get(),
+-                    'Implementation-Title'  : 'Picocli Shell JLine2',
+-                    'Implementation-Vendor' : 'Remko Popma',
+-                    'Implementation-Version': archiveVersion.get(),
+-                    'Automatic-Module-Name' : 'info.picocli.shell.jline2'
 -    }
 -}
- publishing {
-     publications {
-         MyPublication(MavenPublication) {
-diff --git a/picocli-shell-jline3/build.gradle b/picocli-shell-jline3/build.gradle
-index 79b0c56..d46585d 100644
+-
+ ext {
+     PUBLISH_GROUP_ID = group
+     PUBLISH_ARTIFACT_ID = project.name
 --- a/picocli-shell-jline3/build.gradle
 +++ b/picocli-shell-jline3/build.gradle
-@@ -2,7 +2,6 @@ plugins {
-     id 'java'
-     id 'distribution'
-     id 'maven-publish'
--    id 'com.jfrog.bintray'
+@@ -15,18 +15,6 @@
+     testImplementation "junit:junit:$junitVersion"
  }
  
- group 'info.picocli'
-@@ -32,39 +31,6 @@ ext {
-     bintrayWebsiteUrl = 'https://github.com/remkop/picocli/tree/master/picocli-shell-jline3'
-     bintrayLabels     = ['cli', 'interactive', 'commandline', 'shell', 'picocli', 'jline']
- }
--bintray {
--    user = bintrayUsername
--    key  = bintrayApiKey
--    publications = ['MyPublication']
--    dryRun   = bintrayDryRun //[Default: false] Whether to run this as dry-run, without deploying
--    publish  = bintrayPublish //[Default: false] Whether version should be auto published after an upload    
--    override = bintrayOverride //[Default: false] Whether to override version artifacts already published    
--    //Package configuration. The plugin will use the repo and name properties to check if the package already exists. In that case, there's no need to configure the other package properties (like userOrg, desc, etc).
--    pkg {
--        repo     = 'picocli'
--        name     = bintrayPackage
--        userOrg  = 'remkop'
--        licenses = ['Apache-2.0']
--        desc = description
--        websiteUrl = bintrayWebsiteUrl
--        issueTrackerUrl = 'https://github.com/remkop/picocli/issues'
--        vcsUrl   = 'https://github.com/remkop/picocli.git'
--        labels = bintrayLabels
--        publicDownloadNumbers = false
--        version {
--            name     = "$projectVersion"
--            desc     = description
--            released = new Date()
--            vcsTag   = "v$projectVersion"
--            mavenCentralSync {
--                sync = mavenOssSync //[Default: true] Determines whether to sync the version to Maven Central.
--                user = mavenOssUser //OSS user token: mandatory
--                password = mavenOssPassword //OSS user password: mandatory
--                close = '1' //Optional property. By default the staging repository is closed and artifacts are released to Maven Central. You can optionally turn this behaviour off (by puting 0 as value) and release the version manually.
--            }
--        }
+-jar {
+-    manifest {
+-        attributes  'Specification-Title'   : 'Picocli Shell JLine3',
+-                    'Specification-Vendor'  : 'Remko Popma',
+-                    'Specification-Version' : archiveVersion.get(),
+-                    'Implementation-Title'  : 'Picocli Shell JLine3',
+-                    'Implementation-Vendor' : 'Remko Popma',
+-                    'Implementation-Version': archiveVersion.get(),
+-                    'Automatic-Module-Name' : 'info.picocli.shell.jline3'
 -    }
 -}
- publishing {
-     publications {
-         MyPublication(MavenPublication) {
+-
+ ext {
+     PUBLISH_GROUP_ID = group
+     PUBLISH_ARTIFACT_ID = project.name
+--- a/picocli-spring-boot-starter/build.gradle
++++ b/picocli-spring-boot-starter/build.gradle
+@@ -11,19 +11,7 @@
+ dependencies {
+     api                 rootProject
+     api                 "org.springframework.boot:spring-boot-starter:$springBootVersion"
+-    annotationProcessor "org.springframework.boot:spring-boot-configuration-processor:$springBootVersion"
+-}
+-
+-jar {
+-    manifest {
+-        attributes  'Specification-Title'   : 'Picocli Spring Boot Starter',
+-                    'Specification-Vendor'  : 'Remko Popma',
+-                    'Specification-Version' : archiveVersion.get(),
+-                    'Implementation-Title'  : 'Picocli Spring Boot Starter',
+-                    'Implementation-Vendor' : 'Remko Popma',
+-                    'Implementation-Version': archiveVersion.get(),
+-                    'Automatic-Module-Name' : 'info.picocli.spring'
+-    }
++    //annotationProcessor "org.springframework.boot:spring-boot-configuration-processor:$springBootVersion"
+ }
+ 
+ ext {
+--- a/gradle/publish-mavencentral.gradle
++++ b/gradle/publish-mavencentral.gradle
+@@ -1,3 +1,4 @@
++/* disabled for Debian packaging build
+ apply plugin: 'java'
+ apply plugin: 'distribution'
+ apply plugin: 'maven-publish'
+@@ -130,3 +131,4 @@
+ signing {
+     sign publishing.publications
+ }
++*/
+--- a/picocli-examples/build.gradle
++++ b/picocli-examples/build.gradle
+@@ -5,13 +5,13 @@
+         mavenCentral()
+     }
+ 
+-    dependencies {
+-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.4.31"
+-    }
++    //dependencies {
++    //    classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.4.31"
++    //}
+ }
+ 
+ apply plugin: 'groovy'
+-apply plugin: 'kotlin'
++//apply plugin: 'kotlin'
+ apply plugin: 'scala'
+ apply plugin: 'java-library'
+ 
+@@ -24,7 +24,7 @@
+ dependencies {
+     api rootProject
+     api project(':picocli-groovy')
+-    api "org.jetbrains.kotlin:kotlin-stdlib"
++    //api "org.jetbrains.kotlin:kotlin-stdlib"
+     api 'org.scala-lang:scala-library:2.13.3'
+     ivy            "org.apache.ivy:ivy:$ivyVersion" // for Intelli/J
+     implementation "org.codehaus.groovy:groovy-all:$groovyVersion",
+@@ -38,7 +38,7 @@
+                    "org.hibernate.validator:hibernate-validator-annotation-processor:6.1.2.Final",
+                    "javax.el:javax.el-api:3.0.0",
+                    "org.glassfish.web:javax.el:2.2.6"
+-    implementation "org.jetbrains.kotlin:kotlin-script-runtime:1.4.31"
++    //implementation "org.jetbrains.kotlin:kotlin-script-runtime:1.4.31"
+ }
+ tasks.withType(GroovyCompile) {
+     // this, and the `configurations {ivy}` section, are a workaround for the dreaded

@@ -1,88 +1,82 @@
 plugins {
     id 'java'
-    id 'distribution'
-    id 'maven-publish'
-    id 'com.jfrog.bintray'
 }
 
 group 'info.picocli'
 description 'Picocli Code Generation - Tools to generate documentation, configuration, source code and other files from a picocli model.'
 version "$projectVersion"
 
-dependencies {
-    compile rootProject
-    testCompile "junit:junit:$junitVersion"
+// Java 13 cannot compile to target Java 6
+if (org.gradle.api.JavaVersion.current().isJava8Compatible() && !org.gradle.api.JavaVersion.current().isJava11Compatible()) {
+    sourceCompatibility = 1.6
+    targetCompatibility = 1.6
 }
+dependencies {
+    api rootProject
+    testImplementation "junit:junit:$junitVersion"
+}
+
+//task generateGraalReflectionConfig(type: JavaExec) {
+//    main = 'picocli.codegen.aot.graalvm.ReflectionConfigGenerator'
+//    classpath = sourceSets.main.runtimeClasspath
+//    def outputFile = "${rootProject.projectDir}/src/main/resources/META-INF/native-image/info.picocli/picocli/reflect-config.json"
+//    args = ["--output=$outputFile", 'picocli.AutoComplete$App']
+//
+//    doLast {
+//        logger.info(":picocli-codegen:generateGraalReflectionConfig Generating $outputFile")
+//    }
+//}
+//generateGraalReflectionConfig.dependsOn(compileJava)
+//jar.dependsOn(generateGraalReflectionConfig)
+
 jar {
     manifest {
         attributes 'Specification-Title'   : 'Picocli Code Generation',
                    'Specification-Vendor'  : 'Remko Popma',
-                   'Specification-Version' : version,
+                   'Specification-Version' : archiveVersion.get(),
                    'Implementation-Title'  : 'Picocli Code Generation',
                    'Implementation-Vendor' : 'Remko Popma',
-                   'Implementation-Version': version,
+                   'Implementation-Version': archiveVersion.get(),
                    'Automatic-Module-Name' : 'info.picocli.codegen'
     }
 }
 
+
+task generateManpageAsciiDoc(type: JavaExec) {
+    dependsOn(classes)
+    group = "Documentation"
+    description = "Generate AsciiDoc manpage"
+    classpath(configurations.compileClasspath, configurations.annotationProcessor, sourceSets.main.runtimeClasspath)
+    main 'picocli.codegen.docgen.manpage.ManPageGenerator'
+    args 'picocli.codegen.docgen.manpage.ManPageGenerator$App',
+            'picocli.codegen.aot.graalvm.DynamicProxyConfigGenerator$App',
+            'picocli.codegen.aot.graalvm.ReflectionConfigGenerator$App',
+            'picocli.codegen.aot.graalvm.ResourceConfigGenerator$App',
+            'picocli.AutoComplete$App', // the command line app
+            'picocli.AutoComplete$GenerateCompletion', // generate completion subcommand
+            "--outdir=${project.buildDir}/picocli-generated-docs", "-v" //, "--template-dir=src/docs/mantemplates"
+    doLast {
+        ant.replaceregexp(match: "completion script for generate-completion", replace: "completion script for the root command of this command", flags: 'g', byline: true, encoding: 'UTF8') {
+            fileset(dir: 'build/picocli-generated-docs', includes: 'generate-completion.adoc')
+        }
+    }
+}
+
+apply plugin: 'org.asciidoctor.jvm.convert'
+asciidoctor {
+    dependsOn(generateManpageAsciiDoc)
+    sourceDir = file("${project.buildDir}/picocli-generated-docs")
+    outputDir = file("${project.buildDir}/docs")
+    logDocuments = true
+    outputOptions {
+        backends = ['manpage', 'html5']
+    }
+}
+javadoc.dependsOn('asciidoctor')
+
 ext {
-    bintrayPackage    = 'picocli-codegen'
-    bintrayWebsiteUrl = 'https://github.com/remkop/picocli/tree/master/picocli-codegen'
-    bintrayLabels     = ['cli', 'cli framework', 'command line', 'codegen', 'picocli']
+    PUBLISH_GROUP_ID = group
+    PUBLISH_ARTIFACT_ID = project.name
+    PUBLISH_VERSION = "$projectVersion"
 }
-bintray {
-    user = bintrayUsername
-    key  = bintrayApiKey
-    publications = ['MyPublication']
-    dryRun   = bintrayDryRun //[Default: false] Whether to run this as dry-run, without deploying
-    publish  = bintrayPublish //[Default: false] Whether version should be auto published after an upload    
-    override = bintrayOverride //[Default: false] Whether to override version artifacts already published    
-    //Package configuration. The plugin will use the repo and name properties to check if the package already exists. In that case, there's no need to configure the other package properties (like userOrg, desc, etc).
-    pkg {
-        repo     = 'picocli'
-        name     = bintrayPackage
-        userOrg  = 'remkop'
-        licenses = ['Apache-2.0']
-        desc = description
-        websiteUrl = bintrayWebsiteUrl
-        issueTrackerUrl = 'https://github.com/remkop/picocli/issues'
-        vcsUrl   = 'https://github.com/remkop/picocli.git'
-        labels = bintrayLabels
-        publicDownloadNumbers = false
-        version {
-            name     = "$projectVersion"
-            desc     = description
-            released = new Date()
-            vcsTag   = "v$projectVersion"
-            mavenCentralSync {
-                sync = mavenOssSync //[Default: true] Determines whether to sync the version to Maven Central.
-                user = mavenOssUser //OSS user token: mandatory
-                password = mavenOssPassword //OSS user password: mandatory
-                close = '1' //Optional property. By default the staging repository is closed and artifacts are released to Maven Central. You can optionally turn this behaviour off (by puting 0 as value) and release the version manually.
-            }
-        }
-    }
-}
-publishing {
-    publications {
-        MyPublication(MavenPublication) {
-            from components.java
-            artifact sourcesJar
-            artifact testJar
-            artifact testSourcesJar
-            artifact javadocJar
-            groupId 'info.picocli'
-            artifactId bintrayPackage
-            version "$projectVersion"
-            pom.withXml {
-                def root = asNode()
-                root.appendNode('packaging',     'jar')
-                root.appendNode('name',          bintrayPackage)
-                root.appendNode('description',   description)
-                root.appendNode('url',           'http://picocli.info')
-                root.appendNode('inceptionYear', '2018')
-                root.children().last() + pomConfig
-            }
-        }
-    }
-}
+apply from: "${rootProject.projectDir}/gradle/publish-mavencentral.gradle"

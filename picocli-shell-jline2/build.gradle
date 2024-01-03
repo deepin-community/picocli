@@ -1,8 +1,5 @@
 plugins {
     id 'java'
-    id 'distribution'
-    id 'maven-publish'
-    id 'com.jfrog.bintray'
 }
 
 group 'info.picocli'
@@ -10,81 +7,26 @@ description 'Picocli Shell JLine2 - easily build interactive shell applications 
 version "$projectVersion"
 
 dependencies {
-    compile rootProject
-    compile "jline:jline:$jlineVersion"
-    testCompile "junit:junit:$junitVersion"
+    api rootProject
+    api "jline:jline:$jlineVersion"
+    testImplementation "junit:junit:$junitVersion"
 }
 
 jar {
     manifest {
         attributes  'Specification-Title'   : 'Picocli Shell JLine2',
                     'Specification-Vendor'  : 'Remko Popma',
-                    'Specification-Version' : version,
+                    'Specification-Version' : archiveVersion.get(),
                     'Implementation-Title'  : 'Picocli Shell JLine2',
                     'Implementation-Vendor' : 'Remko Popma',
-                    'Implementation-Version': version,
+                    'Implementation-Version': archiveVersion.get(),
                     'Automatic-Module-Name' : 'info.picocli.shell.jline2'
     }
 }
 
 ext {
-    bintrayPackage    = 'picocli-shell-jline2'
-    bintrayWebsiteUrl = 'https://github.com/remkop/picocli/tree/master/picocli-shell-jline2'
-    bintrayLabels     = ['cli', 'interactive', 'commandline', 'shell', 'picocli', 'jline']
+    PUBLISH_GROUP_ID = group
+    PUBLISH_ARTIFACT_ID = project.name
+    PUBLISH_VERSION = "$projectVersion"
 }
-bintray {
-    user = bintrayUsername
-    key  = bintrayApiKey
-    publications = ['MyPublication']
-    dryRun   = bintrayDryRun //[Default: false] Whether to run this as dry-run, without deploying
-    publish  = bintrayPublish //[Default: false] Whether version should be auto published after an upload    
-    override = bintrayOverride //[Default: false] Whether to override version artifacts already published    
-    //Package configuration. The plugin will use the repo and name properties to check if the package already exists. In that case, there's no need to configure the other package properties (like userOrg, desc, etc).
-    pkg {
-        repo     = 'picocli'
-        name     = bintrayPackage
-        userOrg  = 'remkop'
-        licenses = ['Apache-2.0']
-        desc = description
-        websiteUrl = bintrayWebsiteUrl
-        issueTrackerUrl = 'https://github.com/remkop/picocli/issues'
-        vcsUrl   = 'https://github.com/remkop/picocli.git'
-        labels = bintrayLabels
-        publicDownloadNumbers = false
-        version {
-            name     = "$projectVersion"
-            desc     = description
-            released = new Date()
-            vcsTag   = "v$projectVersion"
-            mavenCentralSync {
-                sync = mavenOssSync //[Default: true] Determines whether to sync the version to Maven Central.
-                user = mavenOssUser //OSS user token: mandatory
-                password = mavenOssPassword //OSS user password: mandatory
-                close = '1' //Optional property. By default the staging repository is closed and artifacts are released to Maven Central. You can optionally turn this behaviour off (by puting 0 as value) and release the version manually.
-            }
-        }
-    }
-}
-publishing {
-    publications {
-        MyPublication(MavenPublication) {
-            from components.java
-            artifact sourcesJar
-            artifact testJar
-            artifact testSourcesJar
-            artifact javadocJar
-            groupId 'info.picocli'
-            artifactId bintrayPackage
-            version "$projectVersion"
-            pom.withXml {
-                def root = asNode()
-                root.appendNode('packaging',     'jar')
-                root.appendNode('name',          bintrayPackage)
-                root.appendNode('description',   description)
-                root.appendNode('url',           'http://picocli.info')
-                root.appendNode('inceptionYear', '2018')
-                root.children().last() + pomConfig
-            }
-        }
-    }
-}
+apply from: "${rootProject.projectDir}/gradle/publish-mavencentral.gradle"

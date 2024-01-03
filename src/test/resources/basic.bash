@@ -39,6 +39,7 @@
 # [4] http://zsh.sourceforge.net/Doc/Release/Options.html#index-COMPLETE_005fALIASES
 # [5] https://stackoverflow.com/questions/17042057/bash-check-element-in-array-for-elements-in-another-array/17042655#17042655
 # [6] https://www.gnu.org/software/bash/manual/html_node/Programmable-Completion.html#Programmable-Completion
+# [7] https://stackoverflow.com/questions/3249432/can-a-bash-tab-completion-script-be-used-in-zsh/27853970#27853970
 #
 
 if [ -n "$BASH_VERSION" ]; then
@@ -48,24 +49,65 @@ elif [ -n "$ZSH_VERSION" ]; then
   # Make alias a distinct command for completion purposes when using zsh (see [4])
   setopt COMPLETE_ALIASES
   alias compopt=complete
+
+  # Enable bash completion in zsh (see [7])
+  autoload -U +X compinit && compinit
+  autoload -U +X bashcompinit && bashcompinit
 fi
 
-# ArrContains takes two arguments, both of which are the name of arrays.
-# It creates a temporary hash from lArr1 and then checks if all elements of lArr2
-# are in the hashtable.
+# CompWordsContainsArray takes an array and then checks
+# if all elements of this array are in the global COMP_WORDS array.
 #
-# Returns zero (no error) if all elements of the 2nd array are in the 1st array,
+# Returns zero (no error) if all elements of the array are in the COMP_WORDS array,
 # otherwise returns 1 (error).
-#
-# Modified from [5]
-function ArrContains() {
-  local lArr1 lArr2
-  declare -A tmp
-  eval lArr1=("\"\${$1[@]}\"")
-  eval lArr2=("\"\${$2[@]}\"")
-  for i in "${lArr1[@]}";{ [ -n "$i" ] && ((++tmp[$i]));}
-  for i in "${lArr2[@]}";{ [ -n "$i" ] && [ -z "${tmp[$i]}" ] && return 1;}
+function CompWordsContainsArray() {
+  declare -a localArray
+  localArray=("$@")
+  local findme
+  for findme in "${localArray[@]}"; do
+    if ElementNotInCompWords "$findme"; then return 1; fi
+  done
   return 0
+}
+function ElementNotInCompWords() {
+  local findme="$1"
+  local element
+  for element in "${COMP_WORDS[@]}"; do
+    if [[ "$findme" = "$element" ]]; then return 1; fi
+  done
+  return 0
+}
+
+# The `currentPositionalIndex` function calculates the index of the current positional parameter.
+#
+# currentPositionalIndex takes three parameters:
+# the command name,
+# a space-separated string with the names of options that take a parameter, and
+# a space-separated string with the names of boolean options (that don't take any params).
+# When done, this function echos the current positional index to std_out.
+#
+# Example usage:
+# local currIndex=$(currentPositionalIndex "mysubcommand" "$ARG_OPTS" "$FLAG_OPTS")
+function currentPositionalIndex() {
+  local commandName="$1"
+  local optionsWithArgs="$2"
+  local booleanOptions="$3"
+  local previousWord
+  local result=0
+
+  for i in $(seq $((COMP_CWORD - 1)) -1 0); do
+    previousWord=${COMP_WORDS[i]}
+    if [ "${previousWord}" = "$commandName" ]; then
+      break
+    fi
+    if [[ "${optionsWithArgs}" =~ ${previousWord} ]]; then
+      ((result-=2)) # Arg option and its value not counted as positional param
+    elif [[ "${booleanOptions}" =~ ${previousWord} ]]; then
+      ((result-=1)) # Flag option itself not counted as positional param
+    fi
+    ((result++))
+  done
+  echo "$result"
 }
 
 # Bash completion entry point function.
@@ -82,19 +124,19 @@ function _complete_basicExample() {
 # Generates completions for the options and subcommands of the `basicExample` command.
 function _picocli_basicExample() {
   # Get completion data
-  CURR_WORD=${COMP_WORDS[COMP_CWORD]}
-  PREV_WORD=${COMP_WORDS[COMP_CWORD-1]}
+  local curr_word=${COMP_WORDS[COMP_CWORD]}
+  local prev_word=${COMP_WORDS[COMP_CWORD-1]}
 
-  COMMANDS=""
-  FLAG_OPTS=""
-  ARG_OPTS="-u --timeUnit -t --timeout"
-  timeUnit_OPTION_ARGS="%2$s" # --timeUnit values
+  local commands=""
+  local flag_opts=""
+  local arg_opts="-u --timeUnit -t --timeout"
+  local timeUnit_option_args="%2$s" # --timeUnit values
 
   compopt +o default
 
-  case ${PREV_WORD} in
+  case ${prev_word} in
     -u|--timeUnit)
-      COMPREPLY=( $( compgen -W "${timeUnit_OPTION_ARGS}" -- ${CURR_WORD} ) )
+      COMPREPLY=( $( compgen -W "${timeUnit_option_args}" -- "${curr_word}" ) )
       return $?
       ;;
     -t|--timeout)
@@ -102,10 +144,11 @@ function _picocli_basicExample() {
       ;;
   esac
 
-  if [[ "${CURR_WORD}" == -* ]]; then
-    COMPREPLY=( $(compgen -W "${FLAG_OPTS} ${ARG_OPTS}" -- ${CURR_WORD}) )
+  if [[ "${curr_word}" == -* ]]; then
+    COMPREPLY=( $(compgen -W "${flag_opts} ${arg_opts}" -- "${curr_word}") )
   else
-    COMPREPLY=( $(compgen -W "${COMMANDS}" -- ${CURR_WORD}) )
+    local positionals=""
+    COMPREPLY=( $(compgen -W "${commands} ${positionals}" -- "${curr_word}") )
   fi
 }
 

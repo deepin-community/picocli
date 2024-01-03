@@ -1,18 +1,32 @@
 package picocli;
 
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.contrib.java.lang.system.ProvideSystemProperty;
+import org.junit.contrib.java.lang.system.RestoreSystemProperties;
+import org.junit.rules.TestRule;
 import picocli.CommandLine.Help.Visibility;
 import picocli.CommandLine.ITypeConverter;
+import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Model.IGetter;
 import picocli.CommandLine.Model.ISetter;
 import picocli.CommandLine.Model.PositionalParamSpec;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.Range;
 
+import java.util.List;
+import java.util.Map;
+
 import static org.junit.Assert.*;
-import static org.junit.Assert.assertFalse;
 
 public class ModelPositionalParamSpecTest {
+
+    // allows tests to set any kind of properties they like, without having to individually roll them back
+    @Rule
+    public final TestRule restoreSystemProperties = new RestoreSystemProperties();
+
+    @Rule
+    public final ProvideSystemProperty ansiOFF = new ProvideSystemProperty("picocli.ansi", "false");
 
     @Test
     public void testPositionalParamSpecIsNotOption() {
@@ -110,8 +124,30 @@ public class ModelPositionalParamSpecTest {
     }
 
     @Test
-    public void testPositionalDefaultIndexIsAll() {
-        assertEquals(Range.valueOf("*"), PositionalParamSpec.builder().build().index());
+    public void testRelativeIndexToString() {
+        assertEquals("+", Range.valueOf("+").toString());
+        assertEquals("+ (+)", Range.valueOf("+").internalToString());
+    }
+
+    @Test
+    public void testRelativeAnchoredIndexToString() {
+        assertEquals("0", Range.valueOf("0+").toString());
+        assertEquals("0+ (0)", Range.valueOf("0+").internalToString());
+    }
+
+    @Test
+    public void testPositionalDefaultIndexIsNext() {
+        assertEquals(Range.valueOf("0+"), PositionalParamSpec.builder().build().index());
+    }
+
+    @Test
+    public void testPositionalDefaultIndexForSingleValueIsNext() {
+        assertEquals(Range.valueOf("0+"), PositionalParamSpec.builder().type(String.class).build().index());
+    }
+
+    @Test
+    public void testPositionalDefaultIndexForMultiValueIsAll() {
+        assertEquals(Range.valueOf("*"), PositionalParamSpec.builder().type(List.class).build().index());
     }
 
     @Test
@@ -233,6 +269,25 @@ public class ModelPositionalParamSpecTest {
     }
 
     @Test
+    public void testParameterHasCommand() {
+        class App {
+            @Parameters(index="0") int x;
+        }
+
+        CommandSpec cmd = new CommandLine(new App()).getCommandSpec();
+        CommandSpec cmd2 = new CommandLine(new App()).getCommandSpec();
+        PositionalParamSpec param = cmd.positionalParameters().get(0);
+        assertEquals(cmd, param.command());
+        PositionalParamSpec param1 = PositionalParamSpec.builder().index("1").build();
+        assertEquals(null, param1.command());
+        cmd.add(param1);
+        assertEquals(cmd, param1.command());
+        cmd2.add(param1);
+        assertEquals(cmd2, param1.command());
+        assertEquals(param1, cmd.positionalParameters().get(1));
+    }
+
+    @Test
     public void testPositionalParamSpecEquals() {
         PositionalParamSpec.Builder positional = PositionalParamSpec.builder()
                 .arity("1")
@@ -241,6 +296,7 @@ public class ModelPositionalParamSpecTest {
                 .splitRegex(";")
                 .description("desc")
                 .descriptionKey("key")
+                .type(Map.class)
                 .auxiliaryTypes(Integer.class, Double.class)
                 .index("1..3");
 
@@ -253,10 +309,32 @@ public class ModelPositionalParamSpecTest {
         assertNotEquals(p1, positional.required(true).splitRegex(",").build());
         assertNotEquals(p1, positional.splitRegex(";").description("xyz").build());
         assertNotEquals(p1, positional.description("desc").descriptionKey("XX").build());
-        assertNotEquals(p1, positional.descriptionKey("key").auxiliaryTypes(Short.class).build());
+        assertNotEquals(p1, positional.descriptionKey("key").type(List.class).build());
+        assertNotEquals(p1, positional.type(Map.class).auxiliaryTypes(Short.class).build());
         assertEquals(p1, positional.auxiliaryTypes(Integer.class, Double.class).build());
 
         assertNotEquals(p1, positional.index("0..*").build());
         assertEquals(p1, positional.index("1..3").build());
+    }
+
+    @Test
+    public void testUnresolvedPositionalParamIndex() {
+        class PositionalUnresolvedIndex {
+            @Parameters(index = "${index:-0}") String first;
+            @Parameters(index = "${index:-1}") String second;
+        }
+        CommandLine cmd = new CommandLine(new PositionalUnresolvedIndex());
+        PositionalParamSpec first = cmd.getCommandSpec().positionalParameters().get(0);
+        assertEquals(CommandLine.Range.valueOf("0"), first.index());
+        PositionalParamSpec second = cmd.getCommandSpec().positionalParameters().get(1);
+        assertEquals(CommandLine.Range.valueOf("1"), second.index());
+    }
+
+    @Test
+    public void testPositionalParamSpec_builderCopy() {
+        PositionalParamSpec original = PositionalParamSpec.builder().index("3..4").build();
+        PositionalParamSpec.Builder builder = PositionalParamSpec.builder(original);
+        assertEquals(CommandLine.Range.valueOf("3..4"), builder.index());
+        assertEquals(original, builder.build());
     }
 }

@@ -1,3 +1,35 @@
+picocli (4.6.2-2) unstable; urgency=medium
+
+  * Upload 4.6.x to unstable.
+
+ -- tony mancill <tmancill@debian.org>  Sat, 23 Jul 2022 14:12:50 -0700
+
+picocli (4.6.2-1) experimental; urgency=medium
+
+  * New upstream version 4.6.2 (Closes: #998662)
+  * Update patches for new upstream release
+  * Update to remove OSGi JAR manifests
+  * Do not attempt to build:
+    - picocli-annotation-processing-tests
+    - picocli-examples
+    - picocli-spring-boot-starter
+  * Disable compilation of java9 modules
+  * Disable contents of gradle/publish-mavencentral.gradle
+  * Patch out missing gradle JavaVersion check
+  * Disable annotationProcessor; not available until Gradle 4.6
+  * Ignore org.jetbrains.kotlin:kotlin-gradle-plugin
+
+ -- tony mancill <tmancill@debian.org>  Thu, 21 Jul 2022 20:18:29 -0700
+
+picocli (3.9.6-4) unstable; urgency=medium
+
+  * Add debian/gbp.conf for DEP-14 repo layout
+  * Address FTBFS with Java 17 (Closes: #1011179)
+  * Bump Standards-Version to 4.6.1
+  * Freshen years in debian/copyright
+
+ -- tony mancill <tmancill@debian.org>  Wed, 18 May 2022 21:07:54 -0700
+
 picocli (3.9.6-3) unstable; urgency=medium
 
   * Update Uploaders (Closes: #980400)

@@ -1,9 +1,15 @@
 package picocli;
 
+import org.junit.Rule;
 import org.junit.Test;
+
+import org.junit.contrib.java.lang.system.ProvideSystemProperty;
+import org.junit.contrib.java.lang.system.RestoreSystemProperties;
+import org.junit.rules.TestRule;
 import picocli.CommandLine.Help.Visibility;
 import picocli.CommandLine.ITypeConverter;
 import picocli.CommandLine.InitializationException;
+import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Model.IGetter;
 import picocli.CommandLine.Model.ISetter;
 import picocli.CommandLine.Model.OptionSpec;
@@ -11,12 +17,21 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.Range;
 
 import java.io.StringWriter;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.Assert.*;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.fail;
 
 public class ModelOptionSpecTest {
+
+    // allows tests to set any kind of properties they like, without having to individually roll them back
+    @Rule
+    public final TestRule restoreSystemProperties = new RestoreSystemProperties();
+
+    @Rule
+    public final ProvideSystemProperty ansiOFF = new ProvideSystemProperty("picocli.ansi", "false");
 
     @Test
     public void testOptionIsOption() {
@@ -158,7 +173,7 @@ public class ModelOptionSpecTest {
     @Test()
     public void testOptionSpecRequiresNonNullNameArray() {
         try {
-            OptionSpec.builder(null).build();
+            OptionSpec.builder((String[]) null).build();
             fail("Expected exception");
         } catch (InitializationException ex) {
             assertEquals("OptionSpec names cannot be null. Specify at least one option name.", ex.getMessage());
@@ -316,6 +331,25 @@ public class ModelOptionSpecTest {
     }
 
     @Test
+    public void testOptionHasCommand() {
+        class App {
+            @Option(names = "-x") int x;
+        }
+
+        CommandSpec cmd = new CommandLine(new App()).getCommandSpec();
+        CommandSpec cmd2 = new CommandLine(new App()).getCommandSpec();
+        OptionSpec optx = cmd.findOption('x');
+        assertEquals(cmd, optx.command());
+        OptionSpec opty = OptionSpec.builder("-y").arity("1").build();
+        assertEquals(null, opty.command());
+        cmd.add(opty);
+        assertEquals(cmd, opty.command());
+        cmd2.add(opty);
+        assertEquals(cmd2, opty.command());
+        assertEquals(opty, cmd.findOption('y'));
+    }
+
+    @Test
     public void testOptionSpecEquals() {
         OptionSpec.Builder option = OptionSpec.builder("-x")
                 .arity("1")
@@ -324,6 +358,7 @@ public class ModelOptionSpecTest {
                 .splitRegex(";")
                 .description("desc")
                 .descriptionKey("key")
+                .type(Map.class)
                 .auxiliaryTypes(Integer.class, Double.class)
                 .help(true)
                 .usageHelp(true)
@@ -339,7 +374,8 @@ public class ModelOptionSpecTest {
         assertNotEquals(p1, option.required(true).splitRegex(",").build());
         assertNotEquals(p1, option.splitRegex(";").description("xyz").build());
         assertNotEquals(p1, option.description("desc").descriptionKey("XX").build());
-        assertNotEquals(p1, option.descriptionKey("key").auxiliaryTypes(Short.class).build());
+        assertNotEquals(p1, option.descriptionKey("key").type(List.class).build());
+        assertNotEquals(p1, option.type(Map.class).auxiliaryTypes(Short.class).build());
         assertEquals(p1, option.auxiliaryTypes(Integer.class, Double.class).build());
 
         assertNotEquals(p1, option.help(false).build());
@@ -348,5 +384,67 @@ public class ModelOptionSpecTest {
         assertNotEquals(p1, option.versionHelp(true).order(999).build());
         assertNotEquals(p1, option.order(123).names("-a", "-b", "-c").build());
         assertEquals(p1, option.names("-x").build());
+    }
+
+    @Test
+    public void testOptionSpecBuilder_negatableGetter() {
+        OptionSpec.Builder builder = OptionSpec.builder("-x");
+        assertFalse(builder.negatable());
+    }
+
+    @Test
+    public void testOptionSpec_negatableSetter() {
+        OptionSpec.Builder builder = OptionSpec.builder("-x").negatable(true);
+        assertTrue(builder.negatable());
+    }
+
+    @Test
+    public void testOptionSpec_fallbackValueGetter() {
+        OptionSpec.Builder builder = OptionSpec.builder("-x");
+        assertEquals("", builder.fallbackValue());
+    }
+
+    @Test
+    public void testOptionSpec_fallbackValueSetter() {
+        OptionSpec.Builder builder = OptionSpec.builder("-x").fallbackValue("fallback");
+        assertEquals("fallback", builder.fallbackValue());
+    }
+
+    @Test
+    public void testEmptyUsageSplit() {
+        assertEquals("", OptionSpec.builder("-x").build().splitRegexSynopsisLabel());
+    }
+
+    @Test
+    public void testGetterAndSetterOfUsageSplit() {
+        OptionSpec.Builder builder = OptionSpec.builder("-x");
+        builder.auxiliaryTypes(Integer.class, Integer.TYPE)
+            .splitRegex("\\|")
+            .splitRegexSynopsisLabel("|");
+        assertEquals("\\|", builder.splitRegex());
+        assertEquals("|", builder.splitRegexSynopsisLabel());
+    }
+
+    @Test
+    public void testUsageSplitEquals() {
+        OptionSpec.Builder option = OptionSpec.builder("-x")
+            .arity("1")
+            .hideParamSyntax(true)
+            .required(true)
+            .splitRegex("\\|")
+            .splitRegexSynopsisLabel("|")
+            .description("desc")
+            .descriptionKey("key")
+            .type(Map.class)
+            .auxiliaryTypes(Integer.class, Double.class)
+            .help(true)
+            .usageHelp(true)
+            .versionHelp(true)
+            .order(123);
+
+        OptionSpec p1 = option.build();
+        assertEquals(p1, p1);
+        assertEquals(p1, option.build());
+        assertNotEquals(p1, option.splitRegexSynopsisLabel("\\\\?").build());
     }
 }

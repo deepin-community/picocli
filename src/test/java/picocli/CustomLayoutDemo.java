@@ -38,7 +38,7 @@ import static picocli.CommandLine.Help.Column.Overflow.*;
 )
 public class CustomLayoutDemo implements Runnable {
     public static void main(String[] args) {
-        CommandLine.run(new CustomLayoutDemo(), System.err, args);
+        new CommandLine(new CustomLayoutDemo()).execute(args);
     }
 
     @Option(names = {"-z", "--zip"}, description = "Show usage help for a layout with 2 options per row.")
@@ -155,6 +155,7 @@ public class CustomLayoutDemo implements Runnable {
                 }
             }
         }
+        @SuppressWarnings("deprecation")
         TextTable textTable = TextTable.forColumns(ansi,
                 new Column(5, 2, TRUNCATE), // values should fit
                 new Column(30, 2, SPAN), // overflow into adjacent columns
@@ -242,6 +243,7 @@ public class CustomLayoutDemo implements Runnable {
         sb.append(help.header()).append(help.detailedSynopsis(0, null, false));
         sb.append(System.getProperty("line.separator"));
 
+        @SuppressWarnings("deprecation")
         TextTable textTable = TextTable.forColumns(ansi,
                 new Column(15, 2, TRUNCATE),
                 new Column(65, 1, WRAP));

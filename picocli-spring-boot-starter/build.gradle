@@ -1,0 +1,35 @@
+plugins {
+    id 'java'
+}
+
+group 'info.picocli'
+description 'Picocli Spring Boot Starter - Enables Spring Dependency Injection and Spring Boot AutoConfiguration in Picocli Commands.'
+version "$projectVersion"
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+dependencies {
+    api                 rootProject
+    api                 "org.springframework.boot:spring-boot-starter:$springBootVersion"
+    annotationProcessor "org.springframework.boot:spring-boot-configuration-processor:$springBootVersion"
+}
+
+jar {
+    manifest {
+        attributes  'Specification-Title'   : 'Picocli Spring Boot Starter',
+                    'Specification-Vendor'  : 'Remko Popma',
+                    'Specification-Version' : archiveVersion.get(),
+                    'Implementation-Title'  : 'Picocli Spring Boot Starter',
+                    'Implementation-Vendor' : 'Remko Popma',
+                    'Implementation-Version': archiveVersion.get(),
+                    'Automatic-Module-Name' : 'info.picocli.spring'
+    }
+}
+
+ext {
+    PUBLISH_GROUP_ID = group
+    PUBLISH_ARTIFACT_ID = project.name
+    PUBLISH_VERSION = "$projectVersion"
+}
+apply from: "${rootProject.projectDir}/gradle/publish-mavencentral.gradle"
+

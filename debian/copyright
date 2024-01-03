@@ -21,7 +21,7 @@ Comment:
 
 Files: debian/*
 Copyright: 2018, Miroslav Kravec <kravec.miroslav@gmail.com>
-	   2021, tony mancill <tmancill@debian.org>
+	   2021-2022, tony mancill <tmancill@debian.org>
 License: Apache-2.0
 
 License: Apache-2.0

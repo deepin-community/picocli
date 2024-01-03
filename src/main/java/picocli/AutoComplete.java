@@ -18,14 +18,16 @@ package picocli;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.io.Writer;
 import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 
 import picocli.CommandLine.*;
@@ -60,12 +62,16 @@ public class AutoComplete {
      *      Other parameters are optional. Specify {@code -h} to see details on the available options.
      */
     public static void main(String... args) {
-        AbstractParseResultHandler<List<Object>> resultHandler = new CommandLine.RunLast();
-        DefaultExceptionHandler<List<Object>> exceptionHandler = CommandLine.defaultExceptionHandler();
-        if (exitOnError()) { exceptionHandler.andExit(EXIT_CODE_INVALID_INPUT); }
-
-        List<Object> result = new CommandLine(new App()).parseWithHandlers(resultHandler, exceptionHandler, args);
-        int exitCode = result == null ? EXIT_CODE_SUCCESS : (Integer) result.get(0);
+        IExecutionExceptionHandler errorHandler = new IExecutionExceptionHandler() {
+            public int handleExecutionException(Exception ex, CommandLine commandLine, ParseResult parseResult) {
+                ex.printStackTrace();
+                commandLine.usage(commandLine.getErr());
+                return EXIT_CODE_EXECUTION_ERROR;
+            }
+        };
+        int exitCode = new CommandLine(new App())
+                .setExecutionExceptionHandler(errorHandler)
+                .execute(args);
         if ((exitCode == EXIT_CODE_SUCCESS && exitOnSuccess()) || (exitCode != EXIT_CODE_SUCCESS && exitOnError())) {
             System.exit(exitCode);
         }
@@ -87,20 +93,40 @@ public class AutoComplete {
     /**
      * CLI command class for generating completion script.
      */
-    @Command(name = "picocli.AutoComplete", sortOptions = false,
+    @Command(name = "picocli.AutoComplete", mixinStandardHelpOptions = true, showAtFileInUsageHelp = true,
+            version = "picocli.AutoComplete " + CommandLine.VERSION, sortOptions = false,
             description = "Generates a bash completion script for the specified command class.",
-            footerHeading = "%n@|bold Exit Code|@%n",
+            footerHeading = "%n@|bold System Properties:|@%n",
             footer = {"Set the following system properties to control the exit code of this program:",
-                    " \"@|yellow picocli.autocomplete.systemExitOnSuccess|@\" - call `System.exit(0)` when",
-                    "                                              execution completes normally",
-                    " \"@|yellow picocli.autocomplete.systemExitOnError|@\"   - call `System.exit(ERROR_CODE)`",
-                    "                                              when an error occurs",
-                    "If these system properties are not defined or have value \"false\", this program completes without terminating the JVM."
-            })
+                    "",
+                    "* `\"@|yellow picocli.autocomplete.systemExitOnSuccess|@\"`",
+                    "   call `System.exit(0)` when execution completes normally.",
+                    "* `\"@|yellow picocli.autocomplete.systemExitOnError|@\"`",
+                    "   call `System.exit(ERROR_CODE)` when an error occurs.",
+                    "",
+                    "If these system properties are not defined or have value \"false\", this program completes without terminating the JVM.",
+                    "",
+                    "Example",
+                    "-------",
+                    "  java -cp \"myapp.jar;picocli-4.6.2.jar\" \\",
+                    "              picocli.AutoComplete my.pkg.MyClass"
+            },
+            exitCodeListHeading = "%nExit Codes:%n",
+            exitCodeList = {
+                    "0:Successful program execution",
+                    "1:Usage error: user input for the command was incorrect, " +
+                            "e.g., the wrong number of arguments, a bad flag, " +
+                            "a bad syntax in a parameter, etc.",
+                    "2:The specified command script exists (Specify `--force` to overwrite).",
+                    "3:The specified completion script exists (Specify `--force` to overwrite).",
+                    "4:An exception occurred while generating the completion script."
+            },
+            exitCodeOnInvalidInput = EXIT_CODE_INVALID_INPUT,
+            exitCodeOnExecutionException = EXIT_CODE_EXECUTION_ERROR)
     private static class App implements Callable<Integer> {
 
         @Parameters(arity = "1", description = "Fully qualified class name of the annotated " +
-                "@Command class to generate a completion script for.")
+                "`@Command` class to generate a completion script for.")
         String commandLineFQCN;
 
         @Option(names = {"-c", "--factory"}, description = "Optionally specify the fully qualified class name of the custom factory to use to instantiate the command class. " +
@@ -108,8 +134,8 @@ public class AutoComplete {
         String factoryClass;
 
         @Option(names = {"-n", "--name"}, description = "Optionally specify the name of the command to create a completion script for. " +
-                "When omitted, the annotated class @Command 'name' attribute is used. " +
-                "If no @Command 'name' attribute exists, '<CLASS-SIMPLE-NAME>' (in lower-case) is used.")
+                "When omitted, the annotated class `@Command(name = \"...\")` attribute is used. " +
+                "If no `@Command(name = ...)` attribute exists, '<CLASS-SIMPLE-NAME>' (in lower-case) is used.")
         String commandName;
 
         @Option(names = {"-o", "--completionScript"},
@@ -126,60 +152,89 @@ public class AutoComplete {
         @Option(names = {"-f", "--force"}, description = "Overwrite existing script files.")
         boolean overwriteIfExists;
 
-        @Option(names = { "-h", "--help"}, usageHelp = true, description = "Display this help message and quit.")
-        boolean usageHelpRequested;
+        @Spec CommandSpec spec;
 
-        public Integer call() {
-            try {
-                IFactory factory = CommandLine.defaultFactory();
-                if (factoryClass != null) {
-                    factory = (IFactory) factory.create(Class.forName(factoryClass));
-                }
-                Class<?> cls = Class.forName(commandLineFQCN);
-                Object instance = factory.create(cls);
-                CommandLine commandLine = new CommandLine(instance, factory);
-
-                if (commandName == null) {
-                    commandName = commandLine.getCommandName(); //new CommandLine.Help(commandLine.commandDescriptor).commandName;
-                    if (CommandLine.Help.DEFAULT_COMMAND_NAME.equals(commandName)) {
-                        commandName = cls.getSimpleName().toLowerCase();
-                    }
-                }
-                if (autoCompleteScript == null) {
-                    autoCompleteScript = new File(commandName + "_completion");
-                }
-                File commandScript = null;
-                if (writeCommandScript) {
-                    commandScript = new File(autoCompleteScript.getAbsoluteFile().getParentFile(), commandName);
-                }
-                if (commandScript != null && !overwriteIfExists && checkExists(commandScript)) {
-                    return EXIT_CODE_COMMAND_SCRIPT_EXISTS;
-                }
-                if (!overwriteIfExists && checkExists(autoCompleteScript)) {
-                    return EXIT_CODE_COMPLETION_SCRIPT_EXISTS;
-                }
-
-                AutoComplete.bash(commandName, autoCompleteScript, commandScript, commandLine);
-                return EXIT_CODE_SUCCESS;
-
-            } catch (Exception ex) {
-                ex.printStackTrace();
-                CommandLine.usage(new App(), System.err);
-                return EXIT_CODE_EXECUTION_ERROR;
+        public Integer call() throws Exception {
+            IFactory factory = CommandLine.defaultFactory();
+            if (factoryClass != null) {
+                factory = (IFactory) factory.create(Class.forName(factoryClass));
             }
+            Class<?> cls = Class.forName(commandLineFQCN);
+            Object instance = factory.create(cls);
+            CommandLine commandLine = new CommandLine(instance, factory);
+
+            if (commandName == null) {
+                commandName = commandLine.getCommandName(); //new CommandLine.Help(commandLine.commandDescriptor).commandName;
+                if (CommandLine.Help.DEFAULT_COMMAND_NAME.equals(commandName)) {
+                    commandName = cls.getSimpleName().toLowerCase();
+                }
+            }
+            if (autoCompleteScript == null) {
+                autoCompleteScript = new File(commandName + "_completion");
+            }
+            File commandScript = null;
+            if (writeCommandScript) {
+                commandScript = new File(autoCompleteScript.getAbsoluteFile().getParentFile(), commandName);
+            }
+            if (commandScript != null && !overwriteIfExists && checkExists(commandScript)) {
+                return EXIT_CODE_COMMAND_SCRIPT_EXISTS;
+            }
+            if (!overwriteIfExists && checkExists(autoCompleteScript)) {
+                return EXIT_CODE_COMPLETION_SCRIPT_EXISTS;
+            }
+
+            AutoComplete.bash(commandName, autoCompleteScript, commandScript, commandLine);
+            return EXIT_CODE_SUCCESS;
         }
 
         private boolean checkExists(final File file) {
             if (file.exists()) {
-                System.err.printf("ERROR: picocli.AutoComplete: %s exists. Specify --force to overwrite.%n", file.getAbsolutePath());
-                CommandLine.usage(this, System.err);
+                PrintWriter err = spec.commandLine().getErr();
+                err.printf("ERROR: picocli.AutoComplete: %s exists. Specify --force to overwrite.%n", file.getAbsolutePath());
+                spec.commandLine().usage(err);
                 return true;
             }
             return false;
         }
     }
 
-    private static interface Function<T, V> {
+    /**
+     * Command that generates a Bash/ZSH completion script for its top-level command.
+     * <p>
+     * This class can be used as a subcommand for the top-level command in your application.
+     * Users can then install completion for the top-level command by running the following command:
+     * </p><pre>
+     * source &lt;(top-level-command [sub-command] generate-completion)
+     * </pre>
+     * @since 4.1
+     */
+    @Command(name = "generate-completion", version = "generate-completion " + CommandLine.VERSION,
+            mixinStandardHelpOptions = true,
+            description = {
+                "Generate bash/zsh completion script for ${ROOT-COMMAND-NAME:-the root command of this command}.",
+                "Run the following command to give `${ROOT-COMMAND-NAME:-$PARENTCOMMAND}` TAB completion in the current shell:",
+                "",
+                "  source <(${PARENT-COMMAND-FULL-NAME:-$PARENTCOMMAND} ${COMMAND-NAME})",
+                ""},
+            optionListHeading = "Options:%n",
+            helpCommand = true
+    )
+    public static class GenerateCompletion implements Runnable {
+
+        @Spec CommandLine.Model.CommandSpec spec;
+
+        public void run() {
+            String script = AutoComplete.bash(
+                    spec.root().name(),
+                    spec.root().commandLine());
+            // not PrintWriter.println: scripts with Windows line separators fail in strange ways!
+            spec.commandLine().getOut().print(script);
+            spec.commandLine().getOut().print('\n');
+            spec.commandLine().getOut().flush();
+        }
+    }
+
+    private interface Function<T, V> {
         V apply(T t);
     }
 
@@ -208,7 +263,7 @@ public class AutoComplete {
         public String apply(CharSequence value) { return value.toString(); }
     }
 
-    private static interface Predicate<T> {
+    private interface Predicate<T> {
         boolean test(T t);
     }
     private static class BooleanArgFilter implements Predicate<ArgSpec> {
@@ -228,24 +283,21 @@ public class AutoComplete {
         for (T t : list) { if (filter.test(t)) { result.add(t); } }
         return result;
     }
-    /** Package-private for tests; consider this class private. */
-    static class CommandDescriptor {
+    private static class CommandDescriptor {
         final String functionName;
         final String commandName;
-        CommandDescriptor(String functionName, String commandName) {
+        final CommandLine commandLine;
+        final CommandLine parent;
+        
+        CommandDescriptor(String functionName, String commandName, CommandLine commandLine, CommandLine parent) {
             this.functionName = functionName;
             this.commandName = commandName;
-        }
-        public int hashCode() { return functionName.hashCode() * 37 + commandName.hashCode(); }
-        public boolean equals(Object obj) {
-            if (!(obj instanceof CommandDescriptor)) { return false; }
-            if (obj == this) { return true; }
-            CommandDescriptor other = (CommandDescriptor) obj;
-            return other.functionName.equals(functionName) && other.commandName.equals(commandName);
+            this.commandLine = commandLine;
+            this.parent = parent;
         }
     }
 
-    private static final String HEADER = "" +
+    private static final String SCRIPT_HEADER = "" +
             "#!/usr/bin/env bash\n" +
             "#\n" +
             "# %1$s Bash Completion\n" +
@@ -287,6 +339,7 @@ public class AutoComplete {
             "# [4] http://zsh.sourceforge.net/Doc/Release/Options.html#index-COMPLETE_005fALIASES\n" +
             "# [5] https://stackoverflow.com/questions/17042057/bash-check-element-in-array-for-elements-in-another-array/17042655#17042655\n" +
             "# [6] https://www.gnu.org/software/bash/manual/html_node/Programmable-Completion.html#Programmable-Completion\n" +
+            "# [7] https://stackoverflow.com/questions/3249432/can-a-bash-tab-completion-script-be-used-in-zsh/27853970#27853970\n" +
             "#\n" +
             "\n" +
             "if [ -n \"$BASH_VERSION\" ]; then\n" +
@@ -296,28 +349,69 @@ public class AutoComplete {
             "  # Make alias a distinct command for completion purposes when using zsh (see [4])\n" +
             "  setopt COMPLETE_ALIASES\n" +
             "  alias compopt=complete\n" +
+            "\n" +
+            "  # Enable bash completion in zsh (see [7])\n" +
+            "  autoload -U +X compinit && compinit\n" +
+            "  autoload -U +X bashcompinit && bashcompinit\n" +
             "fi\n" +
             "\n" +
-            "# ArrContains takes two arguments, both of which are the name of arrays.\n" +
-            "# It creates a temporary hash from lArr1 and then checks if all elements of lArr2\n" +
-            "# are in the hashtable.\n" +
+            "# CompWordsContainsArray takes an array and then checks\n" +
+            "# if all elements of this array are in the global COMP_WORDS array.\n" +
             "#\n" +
-            "# Returns zero (no error) if all elements of the 2nd array are in the 1st array,\n" +
+            "# Returns zero (no error) if all elements of the array are in the COMP_WORDS array,\n" +
             "# otherwise returns 1 (error).\n" +
-            "#\n" +
-            "# Modified from [5]\n" +
-            "function ArrContains() {\n" +
-            "  local lArr1 lArr2\n" +
-            "  declare -A tmp\n" +
-            "  eval lArr1=(\"\\\"\\${$1[@]}\\\"\")\n" +
-            "  eval lArr2=(\"\\\"\\${$2[@]}\\\"\")\n" +
-            "  for i in \"${lArr1[@]}\";{ [ -n \"$i\" ] && ((++tmp[$i]));}\n" +
-            "  for i in \"${lArr2[@]}\";{ [ -n \"$i\" ] && [ -z \"${tmp[$i]}\" ] && return 1;}\n" +
+            "function CompWordsContainsArray() {\n" +
+            "  declare -a localArray\n" +
+            "  localArray=(\"$@\")\n" +
+            "  local findme\n" +
+            "  for findme in \"${localArray[@]}\"; do\n" +
+            "    if ElementNotInCompWords \"$findme\"; then return 1; fi\n" +
+            "  done\n" +
             "  return 0\n" +
+            "}\n" +
+            "function ElementNotInCompWords() {\n" +
+            "  local findme=\"$1\"\n" +
+            "  local element\n" +
+            "  for element in \"${COMP_WORDS[@]}\"; do\n" +
+            "    if [[ \"$findme\" = \"$element\" ]]; then return 1; fi\n" +
+            "  done\n" +
+            "  return 0\n" +
+            "}\n" +
+            "\n" +
+            "# The `currentPositionalIndex` function calculates the index of the current positional parameter.\n" +
+            "#\n" +
+            "# currentPositionalIndex takes three parameters:\n" +
+            "# the command name,\n" +
+            "# a space-separated string with the names of options that take a parameter, and\n" +
+            "# a space-separated string with the names of boolean options (that don't take any params).\n" +
+            "# When done, this function echos the current positional index to std_out.\n" +
+            "#\n" +
+            "# Example usage:\n" +
+            "# local currIndex=$(currentPositionalIndex \"mysubcommand\" \"$ARG_OPTS\" \"$FLAG_OPTS\")\n" +
+            "function currentPositionalIndex() {\n" +
+            "  local commandName=\"$1\"\n" +
+            "  local optionsWithArgs=\"$2\"\n" +
+            "  local booleanOptions=\"$3\"\n" +
+            "  local previousWord\n" +
+            "  local result=0\n" +
+            "\n" +
+            "  for i in $(seq $((COMP_CWORD - 1)) -1 0); do\n" +
+            "    previousWord=${COMP_WORDS[i]}\n" +
+            "    if [ \"${previousWord}\" = \"$commandName\" ]; then\n" +
+            "      break\n" +
+            "    fi\n" +
+            "    if [[ \"${optionsWithArgs}\" =~ ${previousWord} ]]; then\n" +
+            "      ((result-=2)) # Arg option and its value not counted as positional param\n" +
+            "    elif [[ \"${booleanOptions}\" =~ ${previousWord} ]]; then\n" +
+            "      ((result-=1)) # Flag option itself not counted as positional param\n" +
+            "    fi\n" +
+            "    ((result++))\n" +
+            "  done\n" +
+            "  echo \"$result\"\n" +
             "}\n" +
             "\n";
 
-    private static final String FOOTER = "" +
+    private static final String SCRIPT_FOOTER = "" +
             "\n" +
             "# Define a completion specification (a compspec) for the\n" +
             "# `%1$s`, `%1$s.sh`, and `%1$s.bash` commands.\n" +
@@ -371,23 +465,52 @@ public class AutoComplete {
         if (scriptName == null)  { throw new NullPointerException("scriptName"); }
         if (commandLine == null) { throw new NullPointerException("commandLine"); }
         StringBuilder result = new StringBuilder();
-        result.append(format(HEADER, scriptName, CommandLine.VERSION));
+        result.append(format(SCRIPT_HEADER, scriptName, CommandLine.VERSION));
 
-        Map<CommandDescriptor, CommandLine> function2command = new LinkedHashMap<CommandDescriptor, CommandLine>();
-        result.append(generateEntryPointFunction(scriptName, commandLine, function2command));
+        List<CommandDescriptor> hierarchy = createHierarchy(scriptName, commandLine);
+        result.append(generateEntryPointFunction(scriptName, commandLine, hierarchy));
 
-        for (Map.Entry<CommandDescriptor, CommandLine> functionSpec : function2command.entrySet()) {
-            CommandDescriptor descriptor = functionSpec.getKey();
-            result.append(generateFunctionForCommand(descriptor.functionName, descriptor.commandName, functionSpec.getValue()));
+        for (CommandDescriptor descriptor : hierarchy) {
+            if (descriptor.commandLine.getCommandSpec().usageMessage().hidden()) { continue; } // #887 skip hidden subcommands
+            result.append(generateFunctionForCommand(descriptor.functionName, descriptor.commandName, descriptor.commandLine));
         }
-        result.append(format(FOOTER, scriptName));
+        result.append(format(SCRIPT_FOOTER, scriptName));
         return result.toString();
+    }
+
+    private static List<CommandDescriptor> createHierarchy(String scriptName, CommandLine commandLine) {
+        List<CommandDescriptor> result = new ArrayList<CommandDescriptor>();
+        result.add(new CommandDescriptor("_picocli_" + scriptName, scriptName, commandLine, null));
+        createSubHierarchy(scriptName, commandLine, result);
+        return result;
+    }
+
+    private static void createSubHierarchy(String scriptName, CommandLine commandLine, List<CommandDescriptor> out) {
+        // breadth-first: generate command lists and function calls for predecessors + each subcommand
+        for (Map.Entry<String, CommandLine> entry : commandLine.getSubcommands().entrySet()) {
+            CommandSpec spec = entry.getValue().getCommandSpec();
+            if (spec.usageMessage().hidden()) { continue; } // #887 skip hidden subcommands
+            String commandName = entry.getKey(); // may be an alias
+            String full = spec.qualifiedName("_");
+            String withoutTopLevelCommand = full.substring(full.indexOf('_') + 1);
+            String withoutCommand = withoutTopLevelCommand.substring(0, withoutTopLevelCommand.lastIndexOf('_') + 1);
+            String functionName = "_picocli_" + scriptName + "_" + bashify(withoutCommand + commandName);
+
+            // remember the function name and associated subcommand so we can easily generate a function later
+            out.add(new CommandDescriptor(functionName, commandName, entry.getValue(), commandLine));
+        }
+
+        // then recursively do the same for all nested subcommands
+        for (Map.Entry<String, CommandLine> entry : commandLine.getSubcommands().entrySet()) {
+            if (entry.getValue().getCommandSpec().usageMessage().hidden()) { continue; } // #887 skip hidden subcommands
+            createSubHierarchy(scriptName, entry.getValue(), out);
+        }
     }
 
     private static String generateEntryPointFunction(String scriptName,
                                                      CommandLine commandLine,
-                                                     Map<CommandDescriptor, CommandLine> function2command) {
-        String HEADER = "" +
+                                                     List<CommandDescriptor> hierarchy) {
+        String FUNCTION_HEADER = "" +
                 "# Bash completion entry point function.\n" +
                 "# _complete_%1$s finds which commands and subcommands have been specified\n" +
                 "# on the command line and delegates to the appropriate function\n" +
@@ -398,62 +521,50 @@ public class AutoComplete {
 //                "  CMDS3=(%1$s tool sub1)\n" +
 //                "  CMDS4=(%1$s tool sub2)\n" +
 //                "\n" +
-//                "  ArrContains COMP_WORDS CMDS4 && { _picocli_basic_tool_sub2; return $?; }\n" +
-//                "  ArrContains COMP_WORDS CMDS3 && { _picocli_basic_tool_sub1; return $?; }\n" +
-//                "  ArrContains COMP_WORDS CMDS2 && { _picocli_basic_tool; return $?; }\n" +
-//                "  ArrContains COMP_WORDS CMDS1 && { _picocli_basic_gettingstarted; return $?; }\n" +
+//                "  if CompWordsContainsArray "${cmds4[@]}" ; then _picocli_basic_tool_sub2; return $?; fi\n" +
+//                "  if CompWordsContainsArray "${cmds3[@]}" ; then _picocli_basic_tool_sub1; return $?; fi\n" +
+//                "  if CompWordsContainsArray "${cmds2[@]}" ; then _picocli_basic_tool; return $?; fi\n" +
+//                "  if CompWordsContainsArray "${cmds1[@]}" ; then _picocli_basic_gettingstarted; return $?; fi\n" +
 //                "  _picocli_%1$s; return $?;\n" +
 //                "}\n" +
 //                "\n" +
 //                "complete -F _complete_%1$s %1$s\n" +
 //                "\n";
                 "";
-        String FOOTER = "\n" +
+            String FUNCTION_FOOTER = "\n" +
                 "  # No subcommands were specified; generate completions for the top-level command.\n" +
                 "  _picocli_%1$s; return $?;\n" +
                 "}\n";
 
         StringBuilder buff = new StringBuilder(1024);
-        buff.append(format(HEADER, scriptName));
+        buff.append(format(FUNCTION_HEADER, scriptName));
 
-        List<String> predecessors = new ArrayList<String>();
         List<String> functionCallsToArrContains = new ArrayList<String>();
 
-        function2command.put(new CommandDescriptor("_picocli_" + scriptName, scriptName), commandLine);
-        generateFunctionCallsToArrContains(scriptName, predecessors, commandLine, buff, functionCallsToArrContains, function2command);
+        generateFunctionCallsToArrContains(buff, functionCallsToArrContains, hierarchy);
 
         buff.append("\n");
         Collections.reverse(functionCallsToArrContains);
         for (String func : functionCallsToArrContains) {
             buff.append(func);
         }
-        buff.append(format(FOOTER, scriptName));
+        buff.append(format(FUNCTION_FOOTER, scriptName));
         return buff.toString();
     }
 
-    private static void generateFunctionCallsToArrContains(String scriptName,
-                                                           List<String> predecessors,
-                                                           CommandLine commandLine,
-                                                           StringBuilder buff,
+    private static void generateFunctionCallsToArrContains(StringBuilder buff,
                                                            List<String> functionCalls,
-                                                           Map<CommandDescriptor, CommandLine> function2command) {
+                                                           List<CommandDescriptor> hierarchy) {
 
-        // breadth-first: generate command lists and function calls for predecessors + each subcommand
-        for (Map.Entry<String, CommandLine> entry : commandLine.getSubcommands().entrySet()) {
+        for (CommandDescriptor descriptor : hierarchy.subList(1, hierarchy.size())) { // skip top-level command
             int count = functionCalls.size();
-            String functionName = "_picocli_" + scriptName + "_" + concat("_", predecessors, entry.getKey(), new Bashify());
-            functionCalls.add(format("  ArrContains COMP_WORDS CMDS%2$d && { %1$s; return $?; }\n", functionName, count));
-            buff.append(      format("  CMDS%2$d=(%1$s)\n", concat(" ", predecessors, entry.getKey(), new NullFunction()), count));
+            CommandSpec spec = descriptor.commandLine.getCommandSpec();
+            String full = spec.qualifiedName(" ");
+            String withoutTopLevelCommand = full.substring(spec.root().name().length() + 1,
+                    full.length() - spec.name().length()) + descriptor.commandName;
 
-            // remember the function name and associated subcommand so we can easily generate a function later
-            function2command.put(new CommandDescriptor(functionName, entry.getKey()), entry.getValue());
-        }
-
-        // then recursively do the same for all nested subcommands
-        for (Map.Entry<String, CommandLine> entry : commandLine.getSubcommands().entrySet()) {
-            predecessors.add(entry.getKey());
-            generateFunctionCallsToArrContains(scriptName, predecessors, entry.getValue(), buff, functionCalls, function2command);
-            predecessors.remove(predecessors.size() - 1);
+            functionCalls.add(format("  if CompWordsContainsArray \"${cmds%2$d[@]}\"; then %1$s; return $?; fi\n", descriptor.functionName, count));
+            buff.append(      format("  local cmds%2$d=(%1$s)\n", withoutTopLevelCommand, count));
         }
     }
     private static String concat(String infix, String... values) {
@@ -474,24 +585,25 @@ public class AutoComplete {
     }
 
     private static String generateFunctionForCommand(String functionName, String commandName, CommandLine commandLine) {
-        String HEADER = "" +
+        String FUNCTION_HEADER = "" +
                 "\n" +
                 "# Generates completions for the options and subcommands of the `%s` %scommand.\n" +
                 "function %s() {\n" +
                 "  # Get completion data\n" +
-                "  CURR_WORD=${COMP_WORDS[COMP_CWORD]}\n" +
-                "  PREV_WORD=${COMP_WORDS[COMP_CWORD-1]}\n" +
+                "  local curr_word=${COMP_WORDS[COMP_CWORD]}\n" +
+                "%s" +
                 "\n" +
-                "  COMMANDS=\"%s\"\n" +  // COMMANDS="gettingstarted tool"
-                "  FLAG_OPTS=\"%s\"\n" + // FLAG_OPTS="--verbose -V -x --extract -t --list"
-                "  ARG_OPTS=\"%s\"\n";   // ARG_OPTS="--host --option --file -f -u --timeUnit"
-
-        String FOOTER = "" +
+                "  local commands=\"%s\"\n" +  // local commands="gettingstarted tool"
+                "  local flag_opts=\"%s\"\n" + // local flag_opts="--verbose -V -x --extract -t --list"
+                "  local arg_opts=\"%s\"\n";   // local arg_opts="--host --option --file -f -u --timeUnit"
+        String FUNCTION_FOOTER = "" +
                 "\n" +
-                "  if [[ \"${CURR_WORD}\" == -* ]]; then\n" +
-                "    COMPREPLY=( $(compgen -W \"${FLAG_OPTS} ${ARG_OPTS}\" -- ${CURR_WORD}) )\n" +
+                "  if [[ \"${curr_word}\" == -* ]]; then\n" +
+                "    COMPREPLY=( $(compgen -W \"${flag_opts} ${arg_opts}\" -- \"${curr_word}\") )\n" +
                 "  else\n" +
-                "    COMPREPLY=( $(compgen -W \"${COMMANDS}\" -- ${CURR_WORD}) )\n" +
+                "    local positionals=\"\"\n" +
+                "%s" +
+                "    COMPREPLY=( $(compgen -W \"${commands} ${positionals}\" -- \"${curr_word}\") )\n" +
                 "  fi\n" +
                 "}\n";
 
@@ -502,15 +614,33 @@ public class AutoComplete {
         String flagOptionNames = optionNames(filter(commandSpec.options(), new BooleanArgFilter()));
         List<OptionSpec> argOptionFields = filter(commandSpec.options(), negate(new BooleanArgFilter()));
         String argOptionNames = optionNames(argOptionFields);
-        String commands = concat(" ", new ArrayList<String>(commandLine.getSubcommands().keySet())).trim();
+
+        Set<String> subCommands = new LinkedHashSet<String>();
+        for (String sub : commandLine.getSubcommands().keySet()) {
+            if (!commandLine.getSubcommands().get(sub).getCommandSpec().usageMessage().hidden()) {
+                subCommands.add(sub); // #1076 Don't generate Autocomplete for hidden commands
+            }
+        }
+        // If the command is a HelpCommand, append parent subcommands to the autocompletion list.
+        if (commandLine.getParent() != null && commandLine.getCommand() instanceof HelpCommand) {
+            subCommands = new LinkedHashSet<String>(subCommands);
+            for (CommandLine subCommandLine : commandLine.getParent().getSubcommands().values()) {
+                if (commandLine == subCommandLine) { continue; }  // Skip the HelpCommand itself
+                if (subCommandLine.getCommandSpec().usageMessage().hidden()) { continue; } // #887 skip hidden subcommands
+                subCommands.add(subCommandLine.getCommandName());
+            }
+        }
+        String commands = concat(" ", new ArrayList<String>(subCommands)).trim();
 
         // Generate the header: the function declaration, CURR_WORD, PREV_WORD and COMMANDS, FLAG_OPTS and ARG_OPTS.
         StringBuilder buff = new StringBuilder(1024);
         String sub = functionName.equals("_picocli_" + commandName) ? "" : "sub";
-        buff.append(format(HEADER, commandName, sub, functionName, commands, flagOptionNames, argOptionNames));
+        String previous_word = argOptionFields.isEmpty() ? "" : "  local prev_word=${COMP_WORDS[COMP_CWORD-1]}\n";
+        buff.append(format(FUNCTION_HEADER, commandName, sub, functionName, previous_word, commands, flagOptionNames, argOptionNames));
 
         // Generate completion lists for options with a known set of valid values (including java enums)
         for (OptionSpec f : commandSpec.options()) {
+            if (f.hidden()) { continue; } // #887 skip hidden options
             if (f.completionCandidates() != null) {
                 generateCompletionCandidates(buff, f);
             }
@@ -524,13 +654,37 @@ public class AutoComplete {
         // Now generate the "case" switches for the options whose arguments we can generate completions for
         buff.append(generateOptionsSwitch(argOptionFields));
 
+        // Generate completion lists for positional params with a known set of valid values (including java enums)
+        for (PositionalParamSpec f : commandSpec.positionalParameters()) {
+            if (f.completionCandidates() != null) {
+                generatePositionParamCompletionCandidates(buff, f);
+            }
+        }
+
+        String paramsCases = generatePositionalParamsCases(commandSpec.positionalParameters(), "", "${curr_word}");
+        String posParamsFooter = "";
+        if (paramsCases.length() > 0) {
+            String POSITIONAL_PARAMS_FOOTER = "" +
+                    "    local currIndex\n" +
+                    "    currIndex=$(currentPositionalIndex \"%s\" \"${arg_opts}\" \"${flag_opts}\")\n" +
+                    "%s";
+            posParamsFooter = format(POSITIONAL_PARAMS_FOOTER, commandName, paramsCases);
+        }
         // Generate the footer: a default COMPREPLY to fall back to, and the function closing brace.
-        buff.append(format(FOOTER));
+        buff.append(format(FUNCTION_FOOTER, posParamsFooter));
         return buff.toString();
     }
 
+    private static void generatePositionParamCompletionCandidates(StringBuilder buff, PositionalParamSpec f) {
+        String paramName = bashify(f.paramLabel());
+        buff.append(format("  local %s_pos_param_args=\"%s\" # %d-%d values\n",
+                paramName,
+                concat(" ", extract(f.completionCandidates())).trim(),
+                f.index().min(), f.index().max()));
+    }
+
     private static void generateCompletionCandidates(StringBuilder buff, OptionSpec f) {
-        buff.append(format("  %s_OPTION_ARGS=\"%s\" # %s values\n",
+        buff.append(format("  local %s_option_args=\"%s\" # %s values\n",
                 bashify(f.paramLabel()),
                 concat(" ", extract(f.completionCandidates())).trim(),
                 f.longestName()));
@@ -543,41 +697,75 @@ public class AutoComplete {
         return result;
     }
 
+    private static String generatePositionalParamsCases(List<PositionalParamSpec> posParams, String indent, String currWord) {
+        StringBuilder buff = new StringBuilder(1024);
+        for (PositionalParamSpec param : posParams) {
+            if (param.hidden()) { continue; } // #887 skip hidden params
+            Class<?> type = param.type();
+            if (param.typeInfo().isMultiValue()) {
+                type = param.typeInfo().getAuxiliaryTypes()[0];
+            }
+            String paramName = bashify(param.paramLabel());
+            String ifOrElif = buff.length() > 0 ? "elif" : "if";
+            int min = param.index().min();
+            int max = param.index().max();
+            if (param.completionCandidates() != null) {
+                buff.append(format("%s    %s (( currIndex >= %d && currIndex <= %d )); then\n", indent, ifOrElif, min, max));
+                buff.append(format("%s      positionals=$( compgen -W \"$%s_pos_param_args\" -- \"%s\" )\n", indent, paramName, currWord));
+            } else if (type.equals(File.class) || "java.nio.file.Path".equals(type.getName())) {
+                buff.append(format("%s    %s (( currIndex >= %d && currIndex <= %d )); then\n", indent, ifOrElif, min, max));
+                buff.append(format("%s      compopt -o filenames\n", indent));
+                buff.append(format("%s      positionals=$( compgen -f -- \"%s\" ) # files\n", indent, currWord));
+            } else if (type.equals(InetAddress.class)) {
+                buff.append(format("%s    %s (( currIndex >= %d && currIndex <= %d )); then\n", indent, ifOrElif, min, max));
+                buff.append(format("%s      compopt -o filenames\n", indent));
+                buff.append(format("%s      positionals=$( compgen -A hostname -- \"%s\" )\n", indent, currWord));
+            }
+        }
+        if (buff.length() > 0) {
+            buff.append(format("%s    fi\n", indent));
+        }
+        return buff.toString();
+    }
+
     private static String generateOptionsSwitch(List<OptionSpec> argOptions) {
-        String optionsCases = generateOptionsCases(argOptions, "", "${CURR_WORD}");
+        String optionsCases = generateOptionsCases(argOptions, "", "${curr_word}");
 
         if (optionsCases.length() == 0) {
             return "";
         }
 
-        StringBuilder buff = new StringBuilder(1024);
-        buff.append("\n");
-        buff.append("  compopt +o default\n");
-        buff.append("\n");
-        buff.append("  case ${PREV_WORD} in\n");
-        buff.append(optionsCases);
-        buff.append("  esac\n");
-        return buff.toString();
+        return "\n"
+                + "  compopt +o default\n"
+                + "\n"
+                + "  case ${prev_word} in\n"
+                + optionsCases
+                + "  esac\n";
     }
 
     private static String generateOptionsCases(List<OptionSpec> argOptionFields, String indent, String currWord) {
         StringBuilder buff = new StringBuilder(1024);
         for (OptionSpec option : argOptionFields) {
+            if (option.hidden()) { continue; } // #887 skip hidden options
+            Class<?> type = option.type();
+            if (option.typeInfo().isMultiValue()){
+                type = option.typeInfo().getAuxiliaryTypes()[0];
+            }
             if (option.completionCandidates() != null) {
                 buff.append(format("%s    %s)\n", indent, concat("|", option.names()))); // "    -u|--timeUnit)\n"
-                buff.append(format("%s      COMPREPLY=( $( compgen -W \"${%s_OPTION_ARGS}\" -- %s ) )\n", indent, bashify(option.paramLabel()), currWord));
+                buff.append(format("%s      COMPREPLY=( $( compgen -W \"${%s_option_args}\" -- \"%s\" ) )\n", indent, bashify(option.paramLabel()), currWord));
                 buff.append(format("%s      return $?\n", indent));
                 buff.append(format("%s      ;;\n", indent));
-            } else if (option.type().equals(File.class) || "java.nio.file.Path".equals(option.type().getName())) {
+            } else if (type.equals(File.class) || "java.nio.file.Path".equals(type.getName())) {
                 buff.append(format("%s    %s)\n", indent, concat("|", option.names()))); // "    -f|--file)\n"
                 buff.append(format("%s      compopt -o filenames\n", indent));
-                buff.append(format("%s      COMPREPLY=( $( compgen -f -- %s ) ) # files\n", indent, currWord));
+                buff.append(format("%s      COMPREPLY=( $( compgen -f -- \"%s\" ) ) # files\n", indent, currWord));
                 buff.append(format("%s      return $?\n", indent));
                 buff.append(format("%s      ;;\n", indent));
-            } else if (option.type().equals(InetAddress.class)) {
+            } else if (type.equals(InetAddress.class)) {
                 buff.append(format("%s    %s)\n", indent, concat("|", option.names()))); // "    -h|--host)\n"
                 buff.append(format("%s      compopt -o filenames\n", indent));
-                buff.append(format("%s      COMPREPLY=( $( compgen -A hostname -- %s ) )\n", indent, currWord));
+                buff.append(format("%s      COMPREPLY=( $( compgen -A hostname -- \"%s\" ) )\n", indent, currWord));
                 buff.append(format("%s      return $?\n", indent));
                 buff.append(format("%s      ;;\n", indent));
             } else {
@@ -592,6 +780,7 @@ public class AutoComplete {
     private static String optionNames(List<OptionSpec> options) {
         List<String> result = new ArrayList<String>();
         for (OptionSpec option : options) {
+            if (option.hidden()) { continue; } // #887 skip hidden options
             result.addAll(Arrays.asList(option.names()));
         }
         return concat(" ", result, "", new NullFunction()).trim();
@@ -672,7 +861,7 @@ public class AutoComplete {
             }
             if (found instanceof ArgSpec) {
                 CommandLine.Range arity = ((ArgSpec) found).arity();
-                if (i < arity.min) {
+                if (i < arity.min()) {
                     return found; // not all parameters have been supplied yet
                 } else {
                     return findCommandFor((ArgSpec) found, parseResult.commandSpec());
@@ -732,21 +921,23 @@ public class AutoComplete {
     private static void addCandidatesForArgsFollowing(CommandSpec commandSpec, List<CharSequence> candidates) {
         if (commandSpec == null) { return; }
         for (Map.Entry<String, CommandLine> entry : commandSpec.subcommands().entrySet()) {
+            if (entry.getValue().getCommandSpec().usageMessage().hidden()) { continue; } // #887 skip hidden subcommands
             candidates.add(entry.getKey());
             candidates.addAll(Arrays.asList(entry.getValue().getCommandSpec().aliases()));
         }
         candidates.addAll(commandSpec.optionsMap().keySet());
         for (PositionalParamSpec positional : commandSpec.positionalParameters()) {
+            if (positional.hidden()) { continue; } // #887 skip hidden subcommands
             addCandidatesForArgsFollowing(positional, candidates);
         }
     }
     private static void addCandidatesForArgsFollowing(OptionSpec optionSpec, List<CharSequence> candidates) {
-        if (optionSpec != null) {
+        if (optionSpec != null && !optionSpec.hidden()) {
             addCompletionCandidates(optionSpec.completionCandidates(), candidates);
         }
     }
     private static void addCandidatesForArgsFollowing(PositionalParamSpec positionalSpec, List<CharSequence> candidates) {
-        if (positionalSpec != null) {
+        if (positionalSpec != null && !positionalSpec.hidden()) {
             addCompletionCandidates(positionalSpec.completionCandidates(), candidates);
         }
     }

@@ -4,7 +4,12 @@
 	dh $@ --buildsystem=gradle --with maven-repo-helper
 
 override_dh_auto_build:
-	dh_auto_build -- jar -x :picocli-examples:compileGroovy -x :picocli-shell-jline3:jar
+	dh_auto_build -- jar \
+		-x :picocli-annotation-processing-tests:jar \
+		-x :picocli-examples:compileGroovy \
+		-x :picocli-examples:jar \
+		-x :picocli-shell-jline3:jar \
+		-x :picocli-spring-boot-starter:jar
 
 # tests are disabled until we have com.github.stefanbirkner:system-rules:1.x
 override_dh_auto_test:

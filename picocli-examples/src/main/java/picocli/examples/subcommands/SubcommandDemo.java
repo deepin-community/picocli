@@ -15,11 +15,12 @@
  */
 package picocli.examples.subcommands;
 
-import java.util.Locale;
-
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
+import picocli.CommandLine.RunAll;
+
+import java.util.Locale;
 
 public class SubcommandDemo {
 
@@ -34,7 +35,7 @@ public class SubcommandDemo {
     @Command(name = "country", description = "Resolve ISO country code (ISO-3166-1, Alpha-2 code)")
     static class Subcommand1 implements Runnable {
 
-        @Parameters(arity = "1..*", paramLabel = "<country1> <country2>", description = "country code(s) to be resolved")
+        @Parameters(arity = "1..*", paramLabel = "<country code>", description = "country code(s) to be resolved")
         private String[] countryCodes;
 
         @Override
@@ -48,7 +49,7 @@ public class SubcommandDemo {
     @Command(name = "language", description = "Resolve ISO language code (ISO 639-1 or -2, two/three letters)")
     static class Subcommand2 implements Runnable {
 
-        @Parameters(arity = "1..*", paramLabel = "<code> <code2>", description = "language code(s) to be resolved")
+        @Parameters(arity = "1..*", paramLabel = "<language code>", description = "language code(s) to be resolved")
         private String[] languageCodes;
 
         @Override
@@ -61,7 +62,8 @@ public class SubcommandDemo {
 
     public static void main(String[] args) {
         CommandLine cmd = new CommandLine(new ParentCommand());
-        cmd.parseWithHandler(new CommandLine.RunAll(), args);
+        cmd.setExecutionStrategy(new RunAll()); // default is RunLast
+        cmd.execute(args);
 
         if (args.length == 0) { cmd.usage(System.out); }
     }
